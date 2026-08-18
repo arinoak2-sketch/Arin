@@ -76,7 +76,7 @@ export function devSignInAllowed(): boolean {
 
 export const braveApiKey = () => read('BRAVE_SEARCH_API_KEY')
 export const anthropicApiKey = () => read('ANTHROPIC_API_KEY')
-export const anthropicModel = () => read('ANTHROPIC_MODEL') ?? 'claude-sonnet-5'
+export const anthropicModel = () => read('ANTHROPIC_MODEL') ?? 'claude-opus-5'
 
 export function braveMonthlyBudget(): number {
   const raw = read('BRAVE_MONTHLY_QUERY_BUDGET')

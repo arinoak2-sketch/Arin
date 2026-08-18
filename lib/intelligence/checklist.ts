@@ -127,7 +127,9 @@ export interface TaskUrgency {
  * a checklist and a plan.
  */
 export function taskUrgency(
-  task: Pick<GeneratedTask, 'kind' | 'leadTimeDays' | 'title'> & { isComplete?: boolean },
+  // Deliberately accepts a plain `kind` string: callers pass rows straight from
+  // the database, where the value set is enforced on write rather than by type.
+  task: { kind: string; leadTimeDays: number; title: string; isComplete?: boolean },
   deadline: Date | null,
   now: Date = new Date(),
 ): TaskUrgency {

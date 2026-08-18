@@ -15,6 +15,7 @@
     "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "@auth/prisma-adapter": "^2.7.4",
     "@prisma/client": "^6.2.1",
     "cheerio": "^1.0.0",
