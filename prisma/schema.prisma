@@ -1,0 +1,521 @@
+// Lumen — data model.  See docs/04-data-model.md for rationale.
+//
+// PORTABILITY NOTE: this schema runs unchanged on SQLite (local dev, zero setup)
+// and Postgres (production). SQLite supports neither native enums nor scalar
+// lists, so both are represented as String columns holding a documented value
+// set or a JSON array, decoded through the typed codecs in lib/db/codec.ts.
+// The allowed values live in lib/db/enums.ts and are enforced by Zod at every
+// write. Switching to Postgres is a one-line provider change.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────  Auth.js  ─────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  role          String    @default("STUDENT") // STUDENT | ADMIN
+  plan          String    @default("FREE") // FREE | PREMIUM
+  createdAt     DateTime  @default(now())
+  lastActiveAt  DateTime  @default(now())
+  deletedAt     DateTime?
+
+  accounts      Account[]
+  sessions      Session[]
+  profile       StudentProfile?
+  preference    UserPreference?
+  subscription  Subscription?
+  saved         SavedOpportunity[]
+  applications  Application[]
+  matches       MatchResult[]
+  notifications Notification[]
+  queries       DiscoveryQuery[]
+  verifications VerificationEvent[]
+
+  @@index([deletedAt])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────  Student  ─────────────────────────────
+
+model StudentProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Stored as a date, never as a bare age, so it cannot go stale.
+  dateOfBirth DateTime?
+  countryCode String? // ISO 3166-1 alpha-2
+  region      String?
+  city        String?
+
+  educationLevel String? // see EDUCATION_LEVELS
+  gradeOrYear    Int?
+  curriculum     String? // see CURRICULA
+  schoolType     String? // see SCHOOL_TYPES
+  languages      String  @default("[]") // JSON string[] of ISO 639-1
+
+  formatPreference     String    @default("ANY") // ONLINE | IN_PERSON | HYBRID | ANY
+  maxTravelRadiusKm    Int?
+  budgetCeiling        Float?
+  budgetCurrency       String?
+  weeklyHoursAvailable Int?
+  availableFrom        DateTime?
+  availableUntil       DateTime?
+
+  targetUniversities String @default("[]") // JSON string[]
+  careerDirections   String @default("[]") // JSON string[] of Tag slugs
+
+  // Set when an EU-resident account is confirmed 16+ (see docs Q3).
+  ageAssuranceAt DateTime?
+
+  completeness Int      @default(0) // 0-100, derived — see lib/intelligence/completeness.ts
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tags         ProfileTag[]
+  achievements Achievement[]
+
+  @@index([countryCode])
+}
+
+// One table for subjects, interests, skills and career fields: identical shape,
+// identical join behaviour. See docs/04-data-model.md [CHANGED].
+model Tag {
+  id         String  @id @default(cuid())
+  slug       String  @unique
+  label      String
+  kind       String // SUBJECT | INTEREST | SKILL | CAREER_FIELD
+  synonyms   String  @default("[]") // JSON string[], used by the matcher
+  parentSlug String?
+
+  profiles      ProfileTag[]
+  opportunities OpportunityTag[]
+
+  @@index([kind])
+}
+
+model ProfileTag {
+  profileId String
+  tagId     String
+  strength  Int            @default(3) // 1-5, how central this is to the student
+  evidence  String?
+  profile   StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  tag       Tag            @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([profileId, tagId])
+  @@index([tagId])
+}
+
+model Achievement {
+  id          String         @id @default(cuid())
+  profileId   String
+  profile     StudentProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  kind        String // COMPETITION | PUBLICATION | LEADERSHIP | SERVICE | CERTIFICATION | PROJECT | SPORT | ARTS
+  title       String
+  organiser   String?
+  level       String? // SCHOOL | LOCAL | REGIONAL | NATIONAL | INTERNATIONAL
+  date        DateTime?
+  description String?
+  evidenceUrl String?
+  tagSlugs    String         @default("[]") // JSON string[]
+  createdAt   DateTime       @default(now())
+
+  @@index([profileId])
+}
+
+// ──────────────────────────  Opportunities  ──────────────────────────
+
+model Organization {
+  id              String    @id @default(cuid())
+  name            String
+  canonicalDomain String    @unique
+  kind            String    @default("UNKNOWN") // UNIVERSITY | NGO | GOVERNMENT | COMPANY | FOUNDATION | SCHOOL | UNKNOWN
+  countryCode     String?
+  verifiedAt      DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+
+  opportunities Opportunity[]
+}
+
+// Categories are rows, not an enum: adding one is an insert, not a migration.
+model Category {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  label       String
+  parentSlug  String?
+  icon        String?
+  description String?
+  sortOrder   Int     @default(0)
+  isActive    Boolean @default(true)
+
+  opportunities OpportunityCategory[]
+}
+
+model Opportunity {
+  id      String  @id @default(cuid())
+  slug    String  @unique
+  title   String
+  summary String?
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id])
+
+  format          String  @default("UNKNOWN") // ONLINE | IN_PERSON | HYBRID | UNKNOWN
+  locationCountry String?
+  locationRegion  String?
+  locationCity    String?
+
+  costType     String   @default("UNKNOWN") // FREE | PAID | FREE_WITH_AID | UNKNOWN
+  costAmount   Float?
+  costCurrency String?
+  aidAvailable Boolean?
+
+  durationText String?
+  durationDays Int?
+
+  // Only ever set when the source states it. Never inferred.
+  competitionLevel String?
+  outcomes         String  @default("[]") // JSON string[] — CERTIFICATE | AWARD | STIPEND | MENTORSHIP | CREDIT | PUBLICATION | EXPERIENCE
+
+  officialUrl String
+  applyUrl    String?
+
+  // What an applicant must produce, as stated by the source. Drives both the
+  // "What you'll need" section and the generated application checklist.
+  // JSON: {kind, label, rawText, provenance}[]
+  requirements String @default("[]")
+
+  // Benefits the ORGANISER states, quoted. Lumen's own interpretation is never
+  // stored here — it is derived at read time and labelled as interpretation.
+  // JSON: {label, rawText, sourceUrl}[]
+  statedBenefits String @default("[]")
+
+  cycleLabel   String?
+  cycleYear    Int?
+  // Links a 2027 cycle back to the 2026 record it replaces. Never overwritten.
+  supersedesId String?      @unique
+  supersedes   Opportunity? @relation("Cycle", fields: [supersedesId], references: [id])
+  supersededBy Opportunity? @relation("Cycle")
+
+  verificationState String    @default("UNVERIFIED") // see VERIFICATION_STATES
+  lastVerifiedAt    DateTime?
+  firstSeenAt       DateTime  @default(now())
+  lastFetchedAt     DateTime?
+
+  // Per-field {method, sourceUrl, rawText, confidence, at}. JSON string.
+  fieldProvenance String @default("{}")
+
+  // Sponsored placements are labelled, excluded from scoring, and can never
+  // influence ranking. Enforced in lib/intelligence/rank.ts.
+  isSponsored Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  categories    OpportunityCategory[]
+  tags          OpportunityTag[]
+  sources       OpportunitySource[]
+  eligibility   EligibilityRule[]
+  deadlines     DeadlineEvent[]
+  saved         SavedOpportunity[]
+  applications  Application[]
+  matches       MatchResult[]
+  verifications VerificationEvent[]
+
+  @@index([verificationState])
+  @@index([cycleYear])
+  @@index([locationCountry])
+}
+
+model OpportunityCategory {
+  opportunityId String
+  categoryId    String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, categoryId])
+  @@index([categoryId])
+}
+
+model OpportunityTag {
+  opportunityId String
+  tagId         String
+  weight        Float       @default(1)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, tagId])
+  @@index([tagId])
+}
+
+// "One canonical opportunity, multiple verified sources."
+model OpportunitySource {
+  id               String      @id @default(cuid())
+  opportunityId    String
+  opportunity      Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  url              String
+  domain           String
+  isOfficial       Boolean     @default(false)
+  discoveredVia    String      @default("BRAVE") // BRAVE | ADMIN | USER_REPORT
+  fetchedAt        DateTime?
+  httpStatus       Int?
+  contentHash      String?
+  extractionMethod String? // see PROVENANCE_METHODS
+  title            String?
+  snippet          String?
+  createdAt        DateTime    @default(now())
+
+  @@unique([opportunityId, url])
+  @@index([domain])
+  @@index([contentHash])
+}
+
+model EligibilityRule {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  dimension     String // see ELIGIBILITY_DIMENSIONS
+  operator      String // BETWEEN | IN | NOT_IN | GTE | LTE | EQUALS | REQUIRES | FREE_TEXT
+  value         String      @default("null") // JSON
+  // The source's exact wording, always kept, always shown beside the verdict.
+  rawText       String
+  provenance    String      @default("{}") // JSON
+  confidence    String      @default("MEDIUM") // HIGH | MEDIUM | LOW
+  createdAt     DateTime    @default(now())
+
+  @@index([opportunityId, dimension])
+}
+
+// Typed events, so an application deadline can never be confused with a
+// programme date. See docs/04-data-model.md [CHANGED].
+model DeadlineEvent {
+  id                 String      @id @default(cuid())
+  opportunityId      String
+  opportunity        Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  kind               String // see DEADLINE_KINDS
+  date               DateTime
+  endDate            DateTime?
+  timezone           String?
+  isRollingAdmission Boolean     @default(false)
+  // True only if the SOURCE says it is approximate. Never set by inference.
+  isEstimated        Boolean     @default(false)
+  rawText            String?
+  provenance         String      @default("{}") // JSON
+  createdAt          DateTime    @default(now())
+
+  @@index([opportunityId, kind])
+  @@index([date])
+}
+
+// ────────────────────────  Student workflow  ─────────────────────────
+
+model SavedOpportunity {
+  id            String      @id @default(cuid())
+  userId        String
+  opportunityId String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  state         String      @default("SAVED") // SAVED | CONSIDERING | HIDDEN | NOT_INTERESTED
+  note          String?
+  createdAt     DateTime    @default(now())
+
+  @@unique([userId, opportunityId])
+  @@index([userId, state])
+}
+
+model Application {
+  id            String      @id @default(cuid())
+  userId        String
+  opportunityId String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  status            String    @default("PREPARING") // see APPLICATION_STATUSES
+  customStatusLabel String?
+  startedAt         DateTime  @default(now())
+  submittedAt       DateTime?
+  decisionAt        DateTime?
+  outcome           String? // ACCEPTED | WAITLISTED | REJECTED | WITHDRAWN | COMPLETED
+  reflection        String?
+  readinessScore    Int       @default(0) // derived, see lib/intelligence/readiness.ts
+  updatedAt         DateTime  @updatedAt
+
+  tasks ApplicationTask[]
+
+  @@unique([userId, opportunityId])
+  @@index([userId, status])
+}
+
+model ApplicationTask {
+  id               String      @id @default(cuid())
+  applicationId    String
+  application      Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  title            String
+  detail           String?
+  kind             String // see TASK_KINDS
+  isRequired       Boolean     @default(true)
+  isComplete       Boolean     @default(false)
+  completedAt      DateTime?
+  dueAt            DateTime?
+  // Why a recommendation letter surfaces weeks early rather than the night before.
+  leadTimeDays     Int         @default(0)
+  blocksSubmission Boolean     @default(true)
+  sortOrder        Int         @default(0)
+  createdAt        DateTime    @default(now())
+
+  @@index([applicationId, sortOrder])
+}
+
+// ────────────────────────  Intelligence  ─────────────────────────────
+
+model MatchResult {
+  id            String      @id @default(cuid())
+  userId        String
+  opportunityId String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  score         Int
+  confidence    String // HIGH | MEDIUM | LOW
+  eligible      Boolean     @default(true)
+  reasons       String      @default("[]") // JSON MatchReason[]
+  engineVersion String
+  computedAt    DateTime    @default(now())
+
+  @@unique([userId, opportunityId])
+  @@index([userId, score])
+}
+
+// Append-only. "Last verified" is read from here and can never be hand-set.
+model VerificationEvent {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  actor         String // SYSTEM | ADMIN | USER
+  actorUserId   String?
+  actorUser     User?       @relation(fields: [actorUserId], references: [id])
+  action        String // see VERIFICATION_ACTIONS
+  fieldsTouched String      @default("[]") // JSON string[]
+  note          String?
+  createdAt     DateTime    @default(now())
+
+  @@index([opportunityId, createdAt])
+}
+
+model DiscoveryQuery {
+  id                 String   @id @default(cuid())
+  userId             String?
+  user               User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  rawQuery           String
+  interpretedFilters String   @default("{}") // JSON — shown back to the student
+  provider           String   @default("BRAVE")
+  resultCount        Int      @default(0)
+  newCount           Int      @default(0)
+  latencyMs          Int?
+  error              String?
+  createdAt          DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Monthly quota guard for the search provider (docs Q4).
+model SearchBudget {
+  id          String    @id @default(cuid())
+  periodKey   String    @unique // "brave:2026-08"
+  used        Int       @default(0)
+  limit       Int
+  exhaustedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+}
+
+model Notification {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind          String // see NOTIFICATION_KINDS
+  applicationId String?
+  opportunityId String?
+  scheduledFor  DateTime
+  sentAt        DateTime?
+  channel       String    @default("IN_APP") // IN_APP | EMAIL
+  // Composed from live state at send time, which is what makes
+  // "due tomorrow AND your personal statement is still incomplete" possible.
+  payload       String    @default("{}") // JSON
+  dismissedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, scheduledFor])
+}
+
+model UserPreference {
+  userId                String   @id
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationChannels  String   @default("[\"IN_APP\"]") // JSON string[]
+  quietHoursStart       Int?
+  quietHoursEnd         Int?
+  digestFrequency       String   @default("WEEKLY") // OFF | DAILY | WEEKLY
+  reducedMotion         Boolean  @default(false)
+  theme                 String   @default("SYSTEM") // SYSTEM | LIGHT | DARK
+  locale                String   @default("en")
+  excludedCategories    String   @default("[]") // JSON string[]
+  excludedOrganizations String   @default("[]") // JSON string[]
+  updatedAt             DateTime @updatedAt
+}
+
+// Scaffold only: no payment provider, no prices. Feature gates read User.plan.
+model Subscription {
+  userId           String    @id
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             String    @default("FREE")
+  status           String    @default("ACTIVE")
+  provider         String    @default("NONE")
+  startedAt        DateTime  @default(now())
+  currentPeriodEnd DateTime?
+}
