@@ -13,3 +13,5 @@ prisma/dev.db-journal
 prisma/migrations/dev/
 .DS_Store
 coverage/
+test-results/
+playwright-report/
