@@ -85,13 +85,28 @@ budget, with an honest message rather than silent degradation.
 | Session cookies rely on Auth.js defaults | Fine for a standard deployment; revisit if Lumen is ever embedded in an iframe. |
 | No CSRF token on server actions | Next.js server actions verify Origin against Host by default. Confirm this holds if a reverse proxy rewrites either header. |
 | Admin role is set directly in the database | Acceptable while admins are the operators. Needs a proper admin-management screen before that changes. |
-| Discovery logs keep raw query text for 90 days | A student's searches can be personal. The purge job is documented but **not yet scheduled** — see below. |
+| Discovery logs keep raw query text for 90 days | A student's searches can be personal, so the window is deliberately short and now enforced in code (`lib/jobs/retention.ts`). Needs a scheduler pointed at the maintenance route to actually fire. |
 | No audit trail of admin *reads* | Approvals and archives are logged; viewing a student's data is not. Worth adding if support staff ever get access. |
+
+### 5. Retention was promised but not implemented — moderate
+
+`docs/00-decisions.md` promised students that discovery logs are purged after
+90 days, and nothing did it. A promise about a student's data is worth exactly
+what the code behind it is worth, and this one was worth nothing.
+
+**Fix.** `lib/jobs/retention.ts` deletes discovery queries past 90 days and sent
+notifications past 60. It deletes rather than anonymises: a query with the user
+id stripped is still a record of what somebody searched for at a given minute,
+and nothing downstream needs it. Exposed two ways — `POST /api/cron/maintenance`
+for a scheduler (shared secret, constant-time compare, refuses to run at all if
+`CRON_SECRET` is unset or too short), and a panel on `/admin` showing how many
+rows are currently past the line so an operator can see the policy being kept
+rather than take it on trust.
 
 ## Not yet done
 
-- **The 90-day discovery-log purge is documented but not implemented.** The
-  retention promise in `docs/00-decisions.md` is not currently kept by code.
-  This is the one place where a stated policy has no enforcement behind it.
-- Rate limits are per-process counters backed by database counts; they hold on a
-  single instance and are approximate across several.
+- **Nothing schedules the maintenance route.** The code exists and is callable;
+  a cron entry has to be pointed at it per deployment. Until then an admin must
+  press the button.
+- Rate limits are backed by database counts, so they hold on a single instance
+  and are approximate across several.

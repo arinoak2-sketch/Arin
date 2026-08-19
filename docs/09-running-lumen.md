@@ -77,9 +77,33 @@ never seeded into a real deployment.
 
 ## Scheduled work
 
-`sweepExpired()` in `lib/discovery/pipeline.ts` moves listings whose application
-deadline has passed to `EXPIRED`, writing an audit entry for each. Run it daily
-(a cron job hitting an authenticated route, or the admin button at `/admin`).
+`POST /api/cron/maintenance` does two jobs and should run daily:
+
+- **Expiry sweep** — listings whose application deadline has passed become
+  `EXPIRED`, each with an audit entry. The old date is never carried into a new
+  cycle.
+- **Retention purge** — discovery logs older than 90 days and sent notifications
+  older than 60 are deleted, which is what keeps the retention promise in
+  `docs/00-decisions.md`.
+
+Set `CRON_SECRET` (`openssl rand -hex 32`) and call it with that as a bearer
+token. The route refuses every request when the secret is unset or shorter than
+16 characters — an unauthenticated endpoint that deletes rows is worse than no
+endpoint.
+
+```bash
+curl -X POST https://YOUR_DOMAIN/api/cron/maintenance \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+On Vercel, add to `vercel.json`:
+
+```json
+{ "crons": [{ "path": "/api/cron/maintenance", "schedule": "0 3 * * *" }] }
+```
+
+Both jobs are also runnable by hand from `/admin`, which is the quickest way to
+confirm the retention policy is being kept.
 
 ## Making yourself an admin
 

@@ -6,6 +6,7 @@ import { requireAdmin } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
 import { encodeJson } from '@/lib/db/codec'
 import { sweepExpired } from '@/lib/discovery/pipeline'
+import { purgeExpiredData } from '@/lib/jobs/retention'
 
 /**
  * Admin actions.
@@ -70,4 +71,20 @@ export async function runExpirySweep() {
   const count = await sweepExpired()
   revalidatePath('/admin')
   return { ok: true as const, count }
+}
+
+/**
+ * Runs the retention purge on demand. The scheduled job is the primary route;
+ * this exists so an operator can prove the policy is being kept without
+ * waiting a day for the next firing.
+ */
+export async function runRetentionPurge() {
+  await requireAdmin()
+  const report = await purgeExpiredData()
+  revalidatePath('/admin')
+  return {
+    ok: true as const,
+    discoveryQueriesPurged: report.discoveryQueriesPurged,
+    notificationsPurged: report.notificationsPurged,
+  }
 }

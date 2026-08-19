@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { prisma } from '@/lib/db/client'
 import { decodeProvenance, METHOD_EXPLANATION } from '@/lib/discovery/provenance'
 import { searchBudgetStatus } from '@/lib/discovery/pipeline'
+import { retentionPreview } from '@/lib/jobs/retention'
 import { triage } from '@/lib/intelligence/deadlines'
 import type { VerificationState } from '@/lib/db/enums'
 import { Card, EmptyState, Eyebrow, Row, SectionHeading, Stack, Tag } from '@/components/ui/primitives'
 import { formatDate, VerificationBadge } from '@/components/opportunity/indicators'
 import { ReviewActions } from '@/components/admin/review-actions'
+import { RetentionPanel } from '@/components/admin/retention-panel'
 import { SweepButton } from '@/components/admin/sweep-button'
 
 export const metadata = { title: 'Admin' }
@@ -44,6 +46,7 @@ export default async function AdminPage() {
     }),
   ])
 
+  const retention = await retentionPreview(now)
   const total = counts.reduce((n, c) => n + c._count, 0)
   const byState = Object.fromEntries(counts.map((c) => [c.verificationState, c._count]))
   const missingDeadline = await prisma.opportunity.count({
@@ -97,6 +100,13 @@ export default async function AdminPage() {
       <Row gap={10}>
         <SweepButton />
       </Row>
+
+      <RetentionPanel
+        dueQueries={retention.dueQueries}
+        totalQueries={retention.totalQueries}
+        retentionDays={retention.retentionDays}
+        oldestQueryAt={retention.oldestQueryAt ? formatDate(retention.oldestQueryAt) : null}
+      />
 
       {/* Reports */}
       {reports.length > 0 ? (
