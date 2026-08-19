@@ -31,11 +31,21 @@ or **OPEN** (blocking, needs your answer). Nothing is implemented from an OPEN r
 | A7 | **Document Vault is deferred out of V1** (D10) | Storing minors' identity documents is the single highest-risk surface in this product. It should not ship in a first pass without a settled retention and encryption policy from you. |
 | A8 | Minimum age **13** enforced at sign-up; under-13 blocked | COPPA/GDPR-K/DPDP baseline. See OPEN Q3 for what happens for 13–15 year olds in the EU. |
 
-## Open — I need your answer before these are built
+## Resolved since — with what was actually built
 
-| # | Question | Why it blocks |
+All four were answered "defaults are fine". Each is now implemented, so the
+answer lives in code rather than in this table.
+
+| # | Question | What shipped |
 |---|---|---|
-| Q1 | **Who verifies opportunities?** The admin queue needs a human. Is that you, a team, or should V1 auto-publish anything with a confirmed official source and mark the rest "Needs review"? | Determines whether students see results on day one. |
-| Q2 | **Data retention.** How long do we keep a student's profile after they stop using Lumen? My default is: profile retained until the user deletes it, discovery logs purged after 90 days, full export + one-click delete always available. | GDPR/DPDP requirement; affects schema. |
-| Q3 | **EU minors.** GDPR Art. 8 requires parental consent below an age that each member state sets between 13 and 16. Options: (a) block EU users under 16, (b) build a parental-consent flow, (c) launch outside the EU first. | Legal exposure. I will not guess this one. |
-| Q4 | **Brave API budget.** Free tier is roughly 2,000 queries/month. Live-search-every-query (D6) will exceed that quickly with real users. My plan: serve the stored corpus instantly, fire live search in the background, and rate-limit per user. Confirm that's acceptable, or tell me the paid tier you'd use. | Determines caching aggressiveness and UX latency. |
+| Q1 | Who verifies opportunities? | Auto-publish only when key fields came from an official domain's own structured markup; everything else is visible but visibly unconfirmed and queued. Nothing reaches `VERIFIED` without a human — `decideVerificationState()` in the pipeline, review queue at `/admin`. |
+| Q2 | Data retention | Profile kept until the student deletes it; discovery logs purged at 90 days; sent notifications at 60. One-click delete anonymises the `User` row so audit keys survive without personal data. `lib/jobs/retention.ts`, surfaced on `/admin` so the policy is checkable rather than asserted. |
+| Q3 | EU minors | EU residents under 16 are blocked at sign-up, enforced server-side in the profile and onboarding writers rather than in the UI. **The consent flow itself is still not built** — see below. |
+| Q4 | Brave API budget | Free tier. Quota is reserved before it is spent, so discovery pauses with a dated message rather than failing mid-session; 12 live searches per student per hour on top, so one account cannot spend everyone's allowance. |
+
+## Still open
+
+| # | Question | Why it is still open |
+|---|---|---|
+| Q3b | **What counts as verifiable parental consent?** Blocking EU under-16s is a holding position, not a solution. Building the flow needs a decision on the mechanism — email confirmation to a parent, a small verified payment, something else — and each has different legal weight in different member states. | This is the one remaining item with real legal exposure, and it is a product and legal decision rather than an engineering one. |
+| Q5 | **Is a paid Brave tier wanted once there are real users?** The free tier is ~2,000 queries a month, which a few dozen active students will exhaust. | Determines whether "live search" stays live at any scale. |
