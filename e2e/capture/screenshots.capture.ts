@@ -1,5 +1,5 @@
 import { test, type BrowserContext, type Page } from '@playwright/test'
-import { clearUser, seedFixtures } from './fixtures'
+import { clearUser, seedFixtures } from '../fixtures'
 
 /** Captures the real UI for review. Not an assertion suite. */
 
@@ -12,7 +12,7 @@ let page: Page
 test.beforeAll(async ({ browser }) => {
   await clearUser(EMAIL)
   await seedFixtures()
-  context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 2 })
+  context = await browser.newContext({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 1 })
   page = await context.newPage()
 })
 
@@ -24,6 +24,7 @@ test.afterAll(async () => {
 test.describe.configure({ mode: 'serial' })
 
 test('capture', async () => {
+  test.setTimeout(240_000)
   await page.goto('/')
   await page.screenshot({ path: `${OUT}/01-landing.png`, fullPage: true })
 
@@ -57,6 +58,15 @@ test('capture', async () => {
   await page.goto('/dashboard')
   await page.waitForTimeout(500)
   await page.screenshot({ path: `${OUT}/05-dashboard.png`, fullPage: true })
+
+  await page.goto('/discover?q=research&ineligible=1')
+  await page.waitForTimeout(800)
+  const other = page.getByRole('article').filter({ hasText: 'Graduate Fellowship' })
+  await other.getByRole('button', { name: 'Save' }).click()
+  await page.waitForTimeout(600)
+  await page.goto('/compare')
+  await page.waitForTimeout(600)
+  await page.screenshot({ path: `${OUT}/10-compare.png`, fullPage: true })
 
   await page.goto('/calendar')
   await page.waitForTimeout(400)

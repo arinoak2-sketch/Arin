@@ -91,3 +91,24 @@ stagger is removed. Nothing conveys meaning through motion alone.
 Breakpoints `480 / 768 / 1024 / 1280`. Mobile is designed, not shrunk: bottom tab bar, filters in a
 full-height sheet with an apply button, sticky save/apply bar on detail pages, comparison as
 frozen-label horizontal scroll, single-column cards with the deadline chip in the top-right thumb arc.
+
+
+## Interaction: forms, not click handlers
+
+Every state-changing control a student uses repeatedly — saving an opportunity,
+ticking a checklist step, saving the profile — is a real `<form>` posting to a
+server action, not a click handler on a hydrated component.
+
+This was found by testing rather than reasoned about in advance: a click that
+lands before React hydrates hits a dead button, and on a mid-range phone on a
+slow connection that window is real. A student tapping Save and seeing nothing
+happen is the kind of failure that loses trust quietly.
+
+`useFormStatus` supplies the pending state, and the label flips to the target
+state while the post is in flight, so it still feels instant once hydrated. The
+optimistic UI is an enhancement on top of a working mechanism, never the
+mechanism itself.
+
+The checklist step is a submit button carrying `role="checkbox"` and
+`aria-checked`, which keeps the keyboard and screen-reader behaviour of a real
+checkbox while remaining a form submission.

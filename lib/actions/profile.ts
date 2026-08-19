@@ -75,6 +75,18 @@ export interface ProfileSaveResult {
   error?: string
 }
 
+/**
+ * useActionState-shaped wrapper. Passing a server action straight to
+ * <form action> is what makes the form work before React hydrates — a student
+ * filling in their profile on a slow phone must not tap Save into a void.
+ */
+export async function saveProfileAction(
+  _previous: ProfileSaveResult | null,
+  formData: FormData,
+): Promise<ProfileSaveResult> {
+  return saveProfile(formData)
+}
+
 export async function saveProfile(formData: FormData): Promise<ProfileSaveResult> {
   const user = await requireUser()
 

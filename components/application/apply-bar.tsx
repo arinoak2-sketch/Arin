@@ -2,7 +2,8 @@
 
 import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
-import { setSavedState, startApplication, unsave } from '@/lib/actions/opportunities'
+import { startApplication } from '@/lib/actions/opportunities'
+import { SaveButton } from '@/components/discover/save-button'
 import { APPLICATION_STATUS_LABELS, type ApplicationStatus } from '@/lib/db/enums'
 
 /**
@@ -24,20 +25,9 @@ export function ApplyBar({
   eligible: boolean
 }) {
   const router = useRouter()
-  const [saved, setSaved] = useState(initialSaved)
   const [started, setStarted] = useState(applicationStatus !== null)
   const [pending, startTransition] = useTransition()
   const [error, setError] = useState<string | null>(null)
-
-  function toggleSave() {
-    const next = !saved
-    setError(null)
-    startTransition(async () => {
-      const result = next ? await setSavedState(opportunityId, 'SAVED') : await unsave(opportunityId)
-      if (result.ok) setSaved(next)
-      else setError('Could not save that.')
-    })
-  }
 
   function begin() {
     setError(null)
@@ -82,25 +72,7 @@ export function ApplyBar({
           flexWrap: 'wrap',
         }}
       >
-        <button
-          type="button"
-          onClick={toggleSave}
-          disabled={pending}
-          aria-pressed={saved}
-          style={{
-            minHeight: 44,
-            padding: '10px 15px',
-            borderRadius: 'var(--radius-input)',
-            border: `1px solid ${saved ? 'var(--accent)' : 'var(--border-strong)'}`,
-            background: saved ? 'var(--accent-wash)' : 'var(--surface-raised)',
-            color: saved ? 'var(--accent)' : 'var(--text-primary)',
-            fontWeight: 600,
-            fontSize: 14.5,
-            cursor: 'pointer',
-          }}
-        >
-          {saved ? '★ Saved' : '☆ Save'}
-        </button>
+        <SaveButton opportunityId={opportunityId} initialSaved={initialSaved} />
 
         {started ? (
           <span

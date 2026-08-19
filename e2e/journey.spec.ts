@@ -118,17 +118,23 @@ test('starting an application builds a checklist ordered by lead time', async ()
 
   await expect(page.getByRole('heading', { name: 'Your applications' })).toBeVisible()
 
-  const checkboxes = page.getByRole('checkbox')
-  await expect(checkboxes.first()).toBeVisible()
+  const steps = page.getByRole('checkbox')
+  await expect(steps.first()).toBeVisible()
 
-  // The recommendation letter depends on another human, so it comes first.
-  const items = await page.locator('li label span').filter({ hasText: /recommendation|transcript|statement/i }).allTextContents()
-  expect(items.length).toBeGreaterThan(0)
-  const firstTaskText = await page.locator('ul li').first().textContent()
-  expect(firstTaskText?.toLowerCase()).toContain('recommendation')
+  // The recommendation letter depends on another human replying, so it is the
+  // first thing the student meets — not the last.
+  const labels = await steps.allTextContents()
+  expect(labels.length).toBeGreaterThan(0)
+  expect(labels[0]!.toLowerCase()).toContain('recommendation')
+  expect(labels.some((l) => /transcript/i.test(l))).toBe(true)
+  expect(labels.some((l) => /statement/i.test(l))).toBe(true)
+  // Submitting is always last.
+  expect(labels[labels.length - 1]!.toLowerCase()).toContain('submit')
 
-  // Ticking a step updates readiness.
-  await checkboxes.first().check()
+  // Ticking a step is a form post, so it works whether or not React has hydrated.
+  await expect(steps.first()).toHaveAttribute('aria-checked', 'false')
+  await steps.first().click()
+  await expect(steps.first()).toHaveAttribute('aria-checked', 'true')
   await expect(page.getByRole('meter').first()).toBeVisible()
 })
 
@@ -169,4 +175,28 @@ test('mobile layout swaps the rail for a bottom bar', async () => {
   // The page must never scroll sideways on a phone.
   const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)
   expect(overflows).toBe(false)
+})
+
+test('comparison lines up saved opportunities and never invents a missing value', async () => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+
+  // Save the second fixture so there are two things to compare.
+  await page.goto('/discover?q=research&ineligible=1')
+  const ineligibleCard = page.getByRole('article').filter({ hasText: 'TEST FIXTURE — Graduate Fellowship' })
+  await ineligibleCard.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(ineligibleCard.getByRole('button', { name: 'Saved', exact: true })).toBeVisible()
+
+  await page.goto('/compare')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('side by side')
+
+  // Both columns are present, and the ineligible one says so rather than
+  // showing a score a student could act on.
+  await expect(page.getByRole('table')).toBeVisible()
+  await expect(page.getByRole('cell', { name: 'Not eligible' })).toBeVisible()
+
+  // A cost the source never stated stays "Not stated" — never defaulted to free.
+  await expect(page.getByRole('cell', { name: 'Not stated', exact: true }).first()).toBeVisible()
+
+  // The assessment is labelled as interpretation, not presented as fact.
+  await expect(page.getByText('Lumen’s interpretation').first()).toBeVisible()
 })

@@ -115,21 +115,26 @@ export default async function DiscoverPage({ searchParams }: { searchParams: Pro
             {results.length} {results.length === 1 ? 'opportunity' : 'opportunities'}
             {query ? <span style={{ color: 'var(--text-tertiary)', fontWeight: 400 }}> for “{query}”</span> : null}
           </h2>
-          {ineligibleCount > 0 ? (
+          <Row gap={14}>
+            <a href="/compare" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+              Compare saved
+            </a>
+            {ineligibleCount > 0 ? (
             <a
               href={`/discover?${new URLSearchParams({ ...(query ? { q: query } : {}), ineligible: '1' }).toString()}`}
               style={{ fontSize: 13, color: 'var(--text-secondary)' }}
             >
               Show {ineligibleCount} you are not eligible for
             </a>
-          ) : includeIneligible ? (
-            <a
-              href={`/discover?${new URLSearchParams(query ? { q: query } : {}).toString()}`}
-              style={{ fontSize: 13, color: 'var(--text-secondary)' }}
-            >
-              Hide ineligible
-            </a>
-          ) : null}
+            ) : includeIneligible ? (
+              <a
+                href={`/discover?${new URLSearchParams(query ? { q: query } : {}).toString()}`}
+                style={{ fontSize: 13, color: 'var(--text-secondary)' }}
+              >
+                Hide ineligible
+              </a>
+            ) : null}
+          </Row>
         </Row>
 
         {results.length === 0 ? (

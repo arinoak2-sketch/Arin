@@ -1,7 +1,7 @@
 'use client'
 
-import { cloneElement, useState, useTransition } from 'react'
-import { saveProfile } from '@/lib/actions/profile'
+import { cloneElement, useActionState } from 'react'
+import { saveProfileAction, type ProfileSaveResult } from '@/lib/actions/profile'
 import { CURRICULA, EDUCATION_LEVELS, FORMAT_PREFERENCES } from '@/lib/db/enums'
 import { Button, Card, SectionHeading, Stack } from '@/components/ui/primitives'
 
@@ -30,24 +30,21 @@ const LEVEL_LABELS: Record<string, string> = {
   GAP_YEAR: 'Gap year',
 }
 
+const INITIAL_STATE: ProfileSaveResult | null = null
+
 export function ProfileForm({ initial }: { initial: ProfileInitial }) {
-  const [pending, startTransition] = useTransition()
-  const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null)
+  // The server action is the form's action, not a click handler, so the form
+  // posts correctly whether or not React has hydrated yet.
+  const [result, formAction, pending] = useActionState(saveProfileAction, INITIAL_STATE)
+
+  const message = result
+    ? result.ok
+      ? { tone: 'ok' as const, text: 'Saved. Your matches will update straight away.' }
+      : { tone: 'error' as const, text: result.error ?? 'Could not save your profile.' }
+    : null
 
   return (
-    <form
-      action={(formData) => {
-        setMessage(null)
-        startTransition(async () => {
-          const result = await saveProfile(formData)
-          setMessage(
-            result.ok
-              ? { tone: 'ok', text: 'Saved. Your matches will update straight away.' }
-              : { tone: 'error', text: result.error ?? 'Could not save your profile.' },
-          )
-        })
-      }}
-    >
+    <form action={formAction}>
       <Stack gap={22}>
         <Card>
           <Stack gap={16}>

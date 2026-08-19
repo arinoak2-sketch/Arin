@@ -34,6 +34,33 @@ export async function setSavedState(opportunityId: string, state: string) {
   return { ok: true as const, state: parsedState }
 }
 
+/**
+ * Form-post variant of save/unsave.
+ *
+ * Rendered as a real <form action={...}>, so it works before React has
+ * hydrated. A student tapping Save on a slow connection gets the save, not a
+ * dead button — the optimistic UI is an enhancement on top, never the mechanism.
+ */
+export async function toggleSavedForm(formData: FormData) {
+  const user = await requireUser()
+  const opportunityId = idSchema.parse(String(formData.get('opportunityId') ?? ''))
+  const desired = String(formData.get('desired') ?? 'SAVE')
+
+  if (desired === 'REMOVE') {
+    await prisma.savedOpportunity.deleteMany({ where: { userId: user.id, opportunityId } })
+  } else {
+    await prisma.savedOpportunity.upsert({
+      where: { userId_opportunityId: { userId: user.id, opportunityId } },
+      create: { userId: user.id, opportunityId, state: 'SAVED' },
+      update: { state: 'SAVED' },
+    })
+  }
+
+  revalidatePath('/discover')
+  revalidatePath('/dashboard')
+  revalidatePath('/compare')
+}
+
 export async function unsave(opportunityId: string) {
   const user = await requireUser()
   await prisma.savedOpportunity.deleteMany({
@@ -96,6 +123,24 @@ export async function startApplication(opportunityId: string) {
   revalidatePath('/applications')
   revalidatePath('/dashboard')
   return { ok: true as const, applicationId: application.id, alreadyExisted: false }
+}
+
+/**
+ * Form-post variant of the checklist toggle, for the same pre-hydration reason
+ * as saving. Ticking a step is the single most repeated action in the product.
+ */
+export async function toggleTaskForm(formData: FormData) {
+  const user = await requireUser()
+  const taskId = idSchema.parse(String(formData.get('taskId') ?? ''))
+  const complete = String(formData.get('complete') ?? 'true') === 'true'
+
+  await prisma.applicationTask.updateMany({
+    where: { id: taskId, application: { userId: user.id } },
+    data: { isComplete: complete, completedAt: complete ? new Date() : null },
+  })
+
+  revalidatePath('/applications')
+  revalidatePath('/dashboard')
 }
 
 export async function toggleTask(taskId: string, complete: boolean) {
