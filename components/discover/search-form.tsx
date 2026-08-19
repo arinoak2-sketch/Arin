@@ -1,8 +1,14 @@
-'use client'
+import Link from 'next/link'
 
-import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { Button } from '@/components/ui/primitives'
+/**
+ * Search, as a plain GET form.
+ *
+ * No client component and no router.push: the browser's own form submission
+ * does the work, so this functions before React hydrates and with scripting off
+ * entirely. It also makes every search a real URL — shareable, bookmarkable,
+ * and correct with the back button — which the previous client-side version
+ * only managed by accident.
+ */
 
 const EXAMPLES = [
   'free STEM programmes for 16-year-olds in India',
@@ -12,33 +18,20 @@ const EXAMPLES = [
 ]
 
 export function SearchForm({ initialQuery }: { initialQuery: string }) {
-  const router = useRouter()
-  const [value, setValue] = useState(initialQuery)
-
-  function submit(query: string) {
-    const q = query.trim()
-    router.push(q ? `/discover?q=${encodeURIComponent(q)}` : '/discover')
-  }
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 11 }}>
-      <form
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault()
-          submit(value)
-        }}
-        style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}
-      >
-        <label htmlFor="discover-q" style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+      <form method="get" action="/discover" role="search" style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+        <label
+          htmlFor="discover-q"
+          style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}
+        >
           Describe what you are looking for
         </label>
         <input
           id="discover-q"
           name="q"
           type="search"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
+          defaultValue={initialQuery}
           placeholder="Describe what you're looking for…"
           autoComplete="off"
           style={{
@@ -52,22 +45,34 @@ export function SearchForm({ initialQuery }: { initialQuery: string }) {
             background: 'var(--surface-raised)',
           }}
         />
-        <Button type="submit" variant="primary" size="lg">
+        <button
+          type="submit"
+          style={{
+            minHeight: 48,
+            padding: '13px 22px',
+            borderRadius: 'var(--radius-input)',
+            border: 'none',
+            background: 'var(--accent)',
+            color: 'var(--accent-contrast)',
+            fontWeight: 650,
+            fontSize: 15.5,
+            cursor: 'pointer',
+          }}
+        >
           Search
-        </Button>
+        </button>
       </form>
 
+      {/* Links, not buttons: an example search is a place you can go. */}
       <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center' }}>
         <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>Try:</span>
         {EXAMPLES.map((example) => (
-          <button
+          <Link
             key={example}
-            type="button"
-            onClick={() => {
-              setValue(example)
-              submit(example)
-            }}
+            href={`/discover?q=${encodeURIComponent(example)}`}
             style={{
+              display: 'inline-flex',
+              alignItems: 'center',
               padding: '5px 11px',
               minHeight: 32,
               borderRadius: 'var(--radius-pill)',
@@ -75,11 +80,11 @@ export function SearchForm({ initialQuery }: { initialQuery: string }) {
               background: 'var(--surface-sunken)',
               color: 'var(--text-secondary)',
               fontSize: 12.5,
-              cursor: 'pointer',
+              textDecoration: 'none',
             }}
           >
             {example}
-          </button>
+          </Link>
         ))}
       </div>
     </div>

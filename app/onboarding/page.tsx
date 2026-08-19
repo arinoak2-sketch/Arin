@@ -1,8 +1,13 @@
 import { requireUser } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
 import { decodeStringArray } from '@/lib/db/codec'
-import { skipOnboarding } from '@/lib/actions/onboarding'
-import { isOnboardingStep, ONBOARDING_STEPS, type OnboardingStep } from '@/lib/onboarding/steps'
+import {
+  isOnboardingError,
+  isOnboardingStep,
+  ONBOARDING_ERRORS,
+  ONBOARDING_STEPS,
+  type OnboardingStep,
+} from '@/lib/onboarding/steps'
 import { Wordmark } from '@/components/layout/wordmark'
 import { Eyebrow, Row, Stack } from '@/components/ui/primitives'
 import { BasicsStep, DirectionStep, InterestsStep, PracticalitiesStep } from '@/components/onboarding/steps'
@@ -24,13 +29,18 @@ export const dynamic = 'force-dynamic'
 export default async function OnboardingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ step?: string }>
+  searchParams: Promise<{ step?: string; error?: string }>
 }) {
   const user = await requireUser()
   const params = await searchParams
 
   const requested = params.step ?? ''
   const step: OnboardingStep = isOnboardingStep(requested) ? requested : 'basics'
+
+  // Validation failures arrive as a code in the URL, never as raw text — so a
+  // crafted link cannot put arbitrary words on the page.
+  const errorCode = params.error ?? ''
+  const error = isOnboardingError(errorCode) ? ONBOARDING_ERRORS[errorCode] : undefined
 
   const profile = await prisma.studentProfile.findUnique({
     where: { userId: user.id },
@@ -44,7 +54,7 @@ export default async function OnboardingPage({
       <Stack gap={30}>
         <Row gap={14} style={{ justifyContent: 'space-between' }}>
           <Wordmark href="/dashboard" size={18} />
-          <form action={skipOnboarding}>
+          <form method="post" action="/api/onboarding/skip">
             <button
               type="submit"
               style={{
@@ -78,11 +88,12 @@ export default async function OnboardingPage({
               educationLevel: profile?.educationLevel ?? '',
               gradeOrYear: profile?.gradeOrYear ?? '',
             }}
+            error={error}
           />
         ) : null}
 
         {step === 'interests' ? (
-          <InterestsStep initial={(profile?.tags ?? []).map((t) => t.tag.label).join(', ')} />
+          <InterestsStep initial={(profile?.tags ?? []).map((t) => t.tag.label).join(', ')} error={error} />
         ) : null}
 
         {step === 'practicalities' ? (
@@ -94,6 +105,7 @@ export default async function OnboardingPage({
               availableFrom: profile?.availableFrom ? profile.availableFrom.toISOString().slice(0, 10) : '',
               availableUntil: profile?.availableUntil ? profile.availableUntil.toISOString().slice(0, 10) : '',
             }}
+            error={error}
           />
         ) : null}
 
@@ -102,6 +114,7 @@ export default async function OnboardingPage({
             initial={decodeStringArray(profile?.careerDirections)
               .map((s) => s.replace(/-/g, ' '))
               .join(', ')}
+            error={error}
           />
         ) : null}
 

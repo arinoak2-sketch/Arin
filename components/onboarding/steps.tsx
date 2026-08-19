@@ -1,27 +1,19 @@
-'use client'
-
-import { cloneElement, useActionState } from 'react'
-import {
-  saveBasics,
-  saveDirection,
-  saveInterests,
-  savePracticalities,
-  skipStep,
-} from '@/lib/actions/onboarding'
-import type { StepResult } from '@/lib/onboarding/steps'
+import { cloneElement } from 'react'
 import { EDUCATION_LEVELS, FORMAT_PREFERENCES } from '@/lib/db/enums'
 import { Card, Stack } from '@/components/ui/primitives'
 
 /**
  * Onboarding steps.
  *
- * Each is a real form posting to a server action, so it works before React
- * hydrates. Each names what the answer unlocks — a student is far more likely
- * to fill in a budget when told it stops Lumen recommending things they would
- * have to withdraw from than when shown a field called "Budget".
+ * Plain server-rendered forms posting to route handlers — no client component,
+ * no server action, no JavaScript required or involved. Onboarding is the first
+ * thing a student touches, frequently on a slow phone, so it is built out of
+ * the parts of the web that cannot fail to load.
+ *
+ * Each step names what the answer unlocks. A student is far more likely to fill
+ * in a budget when told it stops Lumen recommending things they would have to
+ * withdraw from than when shown a field labelled "Budget".
  */
-
-const INITIAL: StepResult | null = null
 
 const LEVEL_LABELS: Record<string, string> = {
   MIDDLE: 'Middle school',
@@ -33,19 +25,17 @@ const LEVEL_LABELS: Record<string, string> = {
 
 export function BasicsStep({
   initial,
+  error,
 }: {
   initial: { dateOfBirth: string; countryCode: string; educationLevel: string; gradeOrYear: number | string }
+  error?: string
 }) {
-  const [result, action, pending] = useActionState(saveBasics, INITIAL)
-
   return (
     <StepShell
       step="basics"
       title="First, the basics"
       lede="Age and country decide most of what you are eligible for. Without them Lumen can rule things in or out only by guessing, which it will not do."
-      error={result?.error}
-      pending={pending}
-      action={action}
+      error={error}
       submitLabel="Continue"
     >
       <Field label="Date of birth" hint="Stored as a date, so your age stays correct as you get older.">
@@ -80,17 +70,13 @@ export function BasicsStep({
   )
 }
 
-export function InterestsStep({ initial }: { initial: string }) {
-  const [result, action, pending] = useActionState(saveInterests, INITIAL)
-
+export function InterestsStep({ initial, error }: { initial: string; error?: string }) {
   return (
     <StepShell
       step="interests"
       title="What are you actually interested in?"
       lede="This is the largest single part of your match score. Two or three is plenty to start with, and you can change them whenever."
-      error={result?.error}
-      pending={pending}
-      action={action}
+      error={error}
       submitLabel="Continue"
     >
       <Field
@@ -116,6 +102,7 @@ export function InterestsStep({ initial }: { initial: string }) {
 
 export function PracticalitiesStep({
   initial,
+  error,
 }: {
   initial: {
     formatPreference: string
@@ -124,17 +111,14 @@ export function PracticalitiesStep({
     availableFrom: string
     availableUntil: string
   }
+  error?: string
 }) {
-  const [result, action, pending] = useActionState(savePracticalities, INITIAL)
-
   return (
     <StepShell
       step="practicalities"
       title="What would actually work for you?"
       lede="This stops Lumen suggesting things you would have to pull out of later — a programme you cannot afford, or one that runs while you are in exams."
-      error={result?.error}
-      pending={pending}
-      action={action}
+      error={error}
       submitLabel="Continue"
     >
       <Field label="Online or in person?">
@@ -146,7 +130,10 @@ export function PracticalitiesStep({
           ))}
         </select>
       </Field>
-      <Field label="Most you could pay" hint="Leave blank if you would rather not say. Lumen never converts currencies — it compares like with like or tells you it cannot.">
+      <Field
+        label="Most you could pay"
+        hint="Leave blank if you would rather not say. Lumen never converts currencies — it compares like with like or tells you it cannot."
+      >
         <input type="number" name="budgetCeiling" min={0} defaultValue={initial.budgetCeiling} style={input} />
       </Field>
       <Field label="Currency">
@@ -170,17 +157,13 @@ export function PracticalitiesStep({
   )
 }
 
-export function DirectionStep({ initial }: { initial: string }) {
-  const [result, action, pending] = useActionState(saveDirection, INITIAL)
-
+export function DirectionStep({ initial, error }: { initial: string; error?: string }) {
   return (
     <StepShell
       step="direction"
       title="Anything you are curious about?"
       lede="Not a commitment — Lumen uses it to explain why something might be worth your time, and to suggest things that would let you find out whether you actually enjoy the work."
-      error={result?.error}
-      pending={pending}
-      action={action}
+      error={error}
       submitLabel="Finish"
     >
       <Field label="Directions you are curious about" hint="For example: medicine, law, engineering. Commas between them.">
@@ -204,8 +187,6 @@ function StepShell({
   title,
   lede,
   error,
-  pending,
-  action,
   submitLabel,
   children,
 }: {
@@ -213,8 +194,6 @@ function StepShell({
   title: string
   lede: string
   error?: string
-  pending: boolean
-  action: (formData: FormData) => void
   submitLabel: string
   children: React.ReactNode
 }) {
@@ -225,7 +204,7 @@ function StepShell({
         <p style={{ fontSize: 15, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{lede}</p>
       </Stack>
 
-      <form action={action}>
+      <form method="post" action={`/api/onboarding/${step}`}>
         <Card>
           <Stack gap={16}>{children}</Stack>
         </Card>
@@ -239,7 +218,6 @@ function StepShell({
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 18, flexWrap: 'wrap' }}>
           <button
             type="submit"
-            disabled={pending}
             style={{
               minHeight: 48,
               padding: '13px 24px',
@@ -249,16 +227,16 @@ function StepShell({
               color: 'var(--accent-contrast)',
               fontWeight: 650,
               fontSize: 15.5,
-              cursor: pending ? 'wait' : 'pointer',
+              cursor: 'pointer',
             }}
           >
-            {pending ? 'Saving…' : submitLabel}
+            {submitLabel}
           </button>
         </div>
       </form>
 
       {/* A separate form, so skipping never submits half-filled values. */}
-      <form action={skipStep}>
+      <form method="post" action="/api/onboarding/skip">
         <input type="hidden" name="step" value={step} />
         <button
           type="submit"
@@ -280,6 +258,11 @@ function StepShell({
   )
 }
 
+/**
+ * Associates the label with the control by id, and attaches the hint through
+ * aria-describedby rather than nesting it inside the label — otherwise the hint
+ * becomes part of the field's accessible name.
+ */
 function Field({
   label,
   hint,

@@ -1,7 +1,19 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { reportOpportunity } from '@/lib/actions/opportunities'
+import { useActionState } from 'react'
+import { reportOpportunityForm, type ReportResult } from '@/lib/actions/opportunities'
+
+/**
+ * Reporting a problem.
+ *
+ * The disclosure is a native <details>, so it opens without JavaScript, and the
+ * form posts to a server action, so it submits without JavaScript. Reporting a
+ * wrong deadline is precisely the thing a student does the moment they notice
+ * something is off — it must not depend on the page having finished loading.
+ *
+ * A report takes effect immediately: the listing drops to "needs review" before
+ * any human sees it. One student's report protects the next.
+ */
 
 const REASONS: Array<{ value: string; label: string }> = [
   { value: 'WRONG_DEADLINE', label: 'The deadline is wrong' },
@@ -12,148 +24,109 @@ const REASONS: Array<{ value: string; label: string }> = [
   { value: 'OTHER', label: 'Something else' },
 ]
 
-/**
- * Reporting takes effect immediately: the listing drops to "needs review"
- * before any human sees the report. One student's report protects the next.
- */
-export function ReportDialog({ opportunityId }: { opportunityId: string }) {
-  const [open, setOpen] = useState(false)
-  const [reason, setReason] = useState(REASONS[0]!.value)
-  const [detail, setDetail] = useState('')
-  const [done, setDone] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [pending, startTransition] = useTransition()
+const INITIAL: ReportResult | null = null
 
-  if (done) {
+export function ReportDialog({ opportunityId }: { opportunityId: string }) {
+  const [result, action, pending] = useActionState(reportOpportunityForm, INITIAL)
+
+  if (result?.ok) {
     return (
-      <p role="status" style={{ fontSize: 13.5, color: 'var(--accent)' }}>
+      <p role="status" style={{ fontSize: 13.5, color: 'var(--accent)', lineHeight: 1.55 }}>
         Thank you — this listing is now marked as needing review, and a person will check it.
       </p>
     )
   }
 
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
+  return (
+    <details style={{ alignSelf: 'flex-start' }} open={result?.ok === false}>
+      <summary
         style={{
-          alignSelf: 'flex-start',
-          background: 'none',
-          border: 'none',
-          padding: '6px 0',
-          minHeight: 36,
-          color: 'var(--text-tertiary)',
-          fontSize: 13.5,
-          textDecoration: 'underline',
           cursor: 'pointer',
+          minHeight: 36,
+          display: 'inline-flex',
+          alignItems: 'center',
+          fontSize: 13.5,
+          color: 'var(--text-tertiary)',
+          textDecoration: 'underline',
         }}
       >
         Report a problem with this listing
-      </button>
-    )
-  }
+      </summary>
 
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault()
-        setError(null)
-        startTransition(async () => {
-          const result = await reportOpportunity(opportunityId, reason, detail)
-          if (result.ok) setDone(true)
-          else setError(result.error ?? 'Could not send that report.')
-        })
-      }}
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 11,
-        padding: 16,
-        border: '1px solid var(--border-strong)',
-        borderRadius: 'var(--radius-card)',
-        background: 'var(--surface-raised)',
-      }}
-    >
-      <strong style={{ fontSize: 14.5, fontWeight: 650 }}>What is wrong with this listing?</strong>
-
-      <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
-        <legend style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
-          Reason for the report
-        </legend>
-        {REASONS.map((r) => (
-          <label key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, minHeight: 32, cursor: 'pointer' }}>
-            <input
-              type="radio"
-              name="reason"
-              value={r.value}
-              checked={reason === r.value}
-              onChange={() => setReason(r.value)}
-            />
-            {r.label}
-          </label>
-        ))}
-      </fieldset>
-
-      <label htmlFor="report-detail" style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-        Anything else that would help (optional)
-      </label>
-      <textarea
-        id="report-detail"
-        value={detail}
-        onChange={(e) => setDetail(e.target.value)}
-        rows={3}
-        maxLength={500}
+      <form
+        action={action}
         style={{
-          padding: 11,
-          fontSize: 14,
-          borderRadius: 'var(--radius-input)',
+          marginTop: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 11,
+          padding: 16,
           border: '1px solid var(--border-strong)',
-          background: 'var(--surface-sunken)',
-          resize: 'vertical',
+          borderRadius: 'var(--radius-card)',
+          background: 'var(--surface-raised)',
+          maxWidth: 460,
         }}
-      />
+      >
+        <input type="hidden" name="opportunityId" value={opportunityId} />
 
-      {error ? (
-        <p role="alert" style={{ fontSize: 13, color: 'var(--urgent)' }}>
-          {error}
-        </p>
-      ) : null}
+        <fieldset style={{ border: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 7 }}>
+          <legend style={{ fontSize: 14.5, fontWeight: 650, padding: 0, marginBottom: 4 }}>
+            What is wrong with this listing?
+          </legend>
+          {REASONS.map((r, i) => (
+            <label
+              key={r.value}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, fontSize: 14, minHeight: 32, cursor: 'pointer' }}
+            >
+              <input type="radio" name="reason" value={r.value} defaultChecked={i === 0} />
+              {r.label}
+            </label>
+          ))}
+        </fieldset>
 
-      <div style={{ display: 'flex', gap: 9 }}>
+        <label htmlFor={`report-detail-${opportunityId}`} style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          Anything else that would help (optional)
+        </label>
+        <textarea
+          id={`report-detail-${opportunityId}`}
+          name="detail"
+          rows={3}
+          maxLength={500}
+          style={{
+            padding: 11,
+            fontSize: 14,
+            borderRadius: 'var(--radius-input)',
+            border: '1px solid var(--border-strong)',
+            background: 'var(--surface-sunken)',
+            resize: 'vertical',
+          }}
+        />
+
+        {result?.error ? (
+          <p role="alert" style={{ fontSize: 13, color: 'var(--urgent)' }}>
+            {result.error}
+          </p>
+        ) : null}
+
         <button
           type="submit"
           disabled={pending}
           style={{
-            minHeight: 40,
-            padding: '9px 15px',
+            alignSelf: 'flex-start',
+            minHeight: 44,
+            padding: '11px 17px',
             borderRadius: 'var(--radius-input)',
             border: 'none',
             background: 'var(--accent)',
             color: 'var(--accent-contrast)',
-            fontWeight: 600,
-            fontSize: 14,
-            cursor: 'pointer',
+            fontWeight: 650,
+            fontSize: 14.5,
+            cursor: pending ? 'wait' : 'pointer',
           }}
         >
           {pending ? 'Sending…' : 'Send report'}
         </button>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          style={{
-            minHeight: 40,
-            padding: '9px 15px',
-            borderRadius: 'var(--radius-input)',
-            border: '1px solid var(--border-strong)',
-            background: 'var(--surface-raised)',
-            fontSize: 14,
-            cursor: 'pointer',
-          }}
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+      </form>
+    </details>
   )
 }

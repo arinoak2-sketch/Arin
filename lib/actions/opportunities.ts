@@ -1,13 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { requireUser } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
-import { decodeRequirements } from '@/lib/db/codec'
 import { SAVED_STATES, APPLICATION_STATUSES } from '@/lib/db/enums'
-import { buildChecklist } from '@/lib/intelligence/checklist'
+import { startApplicationFor } from '@/lib/applications/start'
 
 /**
  * Student write actions.
@@ -73,57 +71,17 @@ export async function unsave(opportunityId: string) {
 }
 
 /**
- * Starting an application generates its checklist from the opportunity's stated
- * requirements, ordered longest-lead-time first so the recommendation letter is
- * the first thing the student sees.
+ * Starting an application, for callers that already have a session and do not
+ * need to navigate. The route handler at /api/applications/start is the path
+ * the UI uses, because that one has to survive a native form post.
  */
 export async function startApplication(opportunityId: string) {
   const user = await requireUser()
-  const parsedId = idSchema.parse(opportunityId)
-
-  const existing = await prisma.application.findUnique({
-    where: { userId_opportunityId: { userId: user.id, opportunityId: parsedId } },
-    select: { id: true },
-  })
-  if (existing) return { ok: true as const, applicationId: existing.id, alreadyExisted: true }
-
-  const opportunity = await prisma.opportunity.findUnique({
-    where: { id: parsedId },
-    select: { requirements: true },
-  })
-  if (!opportunity) return { ok: false as const, error: 'That opportunity no longer exists.' }
-
-  const tasks = buildChecklist(decodeRequirements(opportunity.requirements))
-
-  const application = await prisma.application.create({
-    data: {
-      userId: user.id,
-      opportunityId: parsedId,
-      status: 'PREPARING',
-      tasks: {
-        create: tasks.map((t) => ({
-          title: t.title,
-          detail: t.detail ?? null,
-          kind: t.kind,
-          isRequired: t.isRequired,
-          blocksSubmission: t.blocksSubmission,
-          leadTimeDays: t.leadTimeDays,
-          sortOrder: t.sortOrder,
-        })),
-      },
-    },
-    select: { id: true },
-  })
-
-  await prisma.savedOpportunity.upsert({
-    where: { userId_opportunityId: { userId: user.id, opportunityId: parsedId } },
-    create: { userId: user.id, opportunityId: parsedId, state: 'CONSIDERING' },
-    update: { state: 'CONSIDERING' },
-  })
+  const result = await startApplicationFor(user.id, idSchema.parse(opportunityId))
 
   revalidatePath('/applications')
   revalidatePath('/dashboard')
-  return { ok: true as const, applicationId: application.id, alreadyExisted: false }
+  return result
 }
 
 /**
@@ -144,24 +102,6 @@ export async function toggleTaskForm(formData: FormData) {
   revalidatePath('/dashboard')
 }
 
-/**
- * Form-post variant of starting an application.
- *
- * This is the most consequential button in the product, so it must not depend
- * on React having hydrated. Redirects to the tracker on success, which is also
- * what a plain HTML form does without any JavaScript at all.
- */
-export async function startApplicationForm(formData: FormData) {
-  const opportunityId = idSchema.parse(String(formData.get('opportunityId') ?? ''))
-  const result = await startApplication(opportunityId)
-  if (!result.ok) {
-    // Nothing to recover from here beyond telling the student where they are;
-    // the opportunity page will render the current state on arrival.
-    redirect(`/discover`)
-  }
-  redirect('/applications')
-}
-
 export async function toggleTask(taskId: string, complete: boolean) {
   const user = await requireUser()
   // The join through application.userId is what stops one student toggling
@@ -175,6 +115,26 @@ export async function toggleTask(taskId: string, complete: boolean) {
   revalidatePath('/applications')
   revalidatePath('/dashboard')
   return { ok: true as const }
+}
+
+/** Form-post variant of the status change, for the pre-hydration reason. */
+export async function setApplicationStatusForm(formData: FormData) {
+  const user = await requireUser()
+  const applicationId = idSchema.parse(String(formData.get('applicationId') ?? ''))
+  const status = z.enum(APPLICATION_STATUSES).parse(String(formData.get('status') ?? ''))
+
+  await prisma.application.updateMany({
+    where: { id: applicationId, userId: user.id },
+    data: {
+      status,
+      submittedAt: status === 'SUBMITTED' ? new Date() : undefined,
+      decisionAt: ['ACCEPTED', 'WAITLISTED', 'REJECTED'].includes(status) ? new Date() : undefined,
+      outcome: ['ACCEPTED', 'WAITLISTED', 'REJECTED', 'WITHDRAWN', 'COMPLETED'].includes(status) ? status : undefined,
+    },
+  })
+
+  revalidatePath('/applications')
+  revalidatePath('/dashboard')
 }
 
 export async function setApplicationStatus(applicationId: string, status: string) {
@@ -269,4 +229,21 @@ export async function reportOpportunity(opportunityId: string, reason: string, d
 
   revalidatePath(`/opportunity`)
   return { ok: true as const }
+}
+
+export interface ReportResult {
+  ok: boolean
+  error?: string
+}
+
+/** Form-post variant of reporting, shaped for useActionState. */
+export async function reportOpportunityForm(
+  _previous: ReportResult | null,
+  formData: FormData,
+): Promise<ReportResult> {
+  const opportunityId = String(formData.get('opportunityId') ?? '')
+  const reason = String(formData.get('reason') ?? 'OTHER')
+  const detail = String(formData.get('detail') ?? '')
+  const result = await reportOpportunity(opportunityId, reason, detail)
+  return result.ok ? { ok: true } : { ok: false, error: result.error }
 }

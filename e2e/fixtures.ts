@@ -19,6 +19,16 @@ const asSourceText = (d: Date) =>
   new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', timeZone: 'UTC' }).format(d)
 
 export async function seedFixtures() {
+  // Rebuilt from scratch every run, not upserted.
+  //
+  // Tests mutate these records — reporting a listing flips it to NEEDS_REVIEW,
+  // and deadlines are relative to now — so an upsert that left existing rows
+  // alone meant one suite could silently change what a later suite asserted.
+  // Deleting first is the only way each suite starts from the same state.
+  await prisma.opportunity.deleteMany({
+    where: { slug: { in: ['test-fixture-eligible', 'test-fixture-ineligible'] } },
+  })
+
   const now = Date.now()
   const applicationDeadline = new Date(now + 20 * day)
   const deadlineText = `Applications close ${asSourceText(applicationDeadline)}`
@@ -36,10 +46,8 @@ export async function seedFixtures() {
     update: {},
   })
 
-  const eligible = await prisma.opportunity.upsert({
-    where: { slug: 'test-fixture-eligible' },
-    update: {},
-    create: {
+  const eligible = await prisma.opportunity.create({
+    data: {
       slug: 'test-fixture-eligible',
       title: 'TEST FIXTURE — Summer Research Placement',
       summary: 'A test-only record used to exercise the matching engine.',
@@ -97,10 +105,8 @@ export async function seedFixtures() {
     },
   })
 
-  const ineligible = await prisma.opportunity.upsert({
-    where: { slug: 'test-fixture-ineligible' },
-    update: {},
-    create: {
+  const ineligible = await prisma.opportunity.create({
+    data: {
       slug: 'test-fixture-ineligible',
       title: 'TEST FIXTURE — Graduate Fellowship',
       summary: 'A test-only record whose age rule excludes the test student.',

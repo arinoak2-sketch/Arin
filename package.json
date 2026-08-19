@@ -12,7 +12,12 @@
     "test:watch": "vitest",
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:e2e": "playwright test e2e/journey.spec.ts && playwright test e2e/accessibility.spec.ts && playwright test e2e/no-javascript.spec.ts",
+    "test:e2e:journey": "playwright test e2e/journey.spec.ts",
+    "test:e2e:a11y": "playwright test e2e/accessibility.spec.ts",
+    "test:e2e:nojs": "playwright test e2e/no-javascript.spec.ts",
+    "test:capture": "playwright test --config playwright.capture.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.117.1",

@@ -387,6 +387,7 @@ export default async function OpportunityPage({ params }: { params: Promise<{ sl
 
       <ApplyBar
         opportunityId={record.id}
+        slug={record.slug}
         officialUrl={record.applyUrl ?? record.officialUrl}
         initialSaved={saved?.state === 'SAVED' || saved?.state === 'CONSIDERING'}
         applicationStatus={application?.status ?? null}

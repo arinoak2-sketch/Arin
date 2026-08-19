@@ -63,14 +63,39 @@ sign-in is unconfigured, or if `ALLOW_DEV_SIGNIN` is `true` — see
 ## Tests
 
 ```bash
-npm test                     # 99 unit tests — matching, extraction, dedupe, provenance
-npx playwright test          # 8 end-to-end journey tests (needs the dev server)
+npm test                # unit tests — matching, extraction, dedupe, provenance, contrast
 npm run typecheck
+
+npm run dev             # in one shell
+npm run test:e2e        # in another — runs the three suites in sequence
 ```
 
-The end-to-end suite runs against the **dev** server on purpose: the dev-only
-sign-in provider does not exist in a production build, which is the behaviour
-being relied on.
+The three end-to-end suites and what each is for:
+
+| Suite | Command | Guards |
+|---|---|---|
+| Journey | `npm run test:e2e:journey` | The whole student path, and the promises each screen makes |
+| Accessibility | `npm run test:e2e:a11y` | axe over every page, in both themes |
+| No JavaScript | `npm run test:e2e:nojs` | Every control works before React hydrates |
+
+`npm run test:capture` regenerates the review screenshots; those specs are
+excluded from the normal run because they assert nothing.
+
+**Run them as separate commands, not one `playwright test`.** They share a dev
+server, and Next's dev server gets unreliable after many route compilations in
+one go.
+
+**Two dev-server gotchas that will otherwise look like product bugs:**
+
+1. *Stale build cache after editing shared modules.* Symptom is
+   `Cannot find module './vendor-chunks/…'` and a 500 on an unrelated page. Stop
+   the server, `rm -rf .next`, start again.
+2. *A route compiling mid-request.* Symptom is `Unexpected end of JSON input` or
+   `Expected clientReferenceManifest to be defined`, usually on the page a form
+   POST redirects to. `e2e/global-setup.ts` warms every page **and every route
+   handler** before the suites to avoid it, and the config allows retries for
+   the residual race. Neither can happen in a production build, where nothing
+   compiles at request time.
 
 Test fixtures live in `e2e/fixtures.ts`, are titled `TEST FIXTURE — …`, and are
 never seeded into a real deployment.

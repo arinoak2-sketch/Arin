@@ -125,3 +125,46 @@ mechanism itself.
 The checklist step is a submit button carrying `role="checkbox"` and
 `aria-checked`, which keeps the keyboard and screen-reader behaviour of a real
 checkbox while remaining a form submission.
+
+
+## The rule that came out of testing with JavaScript off
+
+`e2e/no-javascript.spec.ts` runs the whole core journey in a browser with
+scripting disabled. It exists because the same bug — a control that is a click
+handler on a component React has not hydrated yet, so an early tap silently
+does nothing — was fixed four separate times, each found by accident. JS-off is
+a stricter bar than pre-hydration, so anything passing it is safe in the
+slow-connection window real students actually live in.
+
+Three rules fell out of it, and all three had already shipped as bugs:
+
+**1. State-changing controls are forms, never click handlers.** Save, the
+checklist, the profile, the status select, reporting and starting an
+application are all `<form>` elements posting to the server. `useFormStatus`
+supplies the pending state; the optimistic label flip is an enhancement on a
+working mechanism, never the mechanism.
+
+**2. Anything that navigates is a route handler, not a server action.** A
+server action calling `redirect()` breaks when its form is submitted natively —
+the framework expects returned state it can serialise back into the form, and a
+redirect never returns. Onboarding and "start application" are plain POSTs
+answered with 303. Server actions are still used freely for everything that
+does *not* navigate.
+
+**3. Redirects use a relative `Location`.** An absolute URL has to name a host,
+and the host derived from a request is not reliably the one the browser used —
+in development 127.0.0.1 came back as localhost, and behind a reverse proxy it
+can be the internal origin. Session cookies are per-host, so redirecting to a
+different spelling of the same server silently signs the student out. This one
+shipped and was invisible until the no-JS suite caught it.
+
+### Why there are no `loading.tsx` files
+
+There were, briefly. Next streams the real content in and swaps out the
+Suspense fallback using an inline script, so with scripting off the skeleton is
+what a student sees *permanently* — the search box never appears. They were
+added for perceived polish rather than in response to a measured problem, and
+they cost correctness. These pages render server-side in a few hundred
+milliseconds; a short honest wait beats a skeleton that can become the whole
+page. If profiling later shows a need, the right shape is a Suspense boundary
+around only the results region, with the page shell and its controls outside it.

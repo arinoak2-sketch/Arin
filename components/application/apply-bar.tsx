@@ -1,7 +1,6 @@
 'use client'
 
 import { useFormStatus } from 'react-dom'
-import { startApplicationForm } from '@/lib/actions/opportunities'
 import { SaveButton } from '@/components/discover/save-button'
 import { APPLICATION_STATUS_LABELS, type ApplicationStatus } from '@/lib/db/enums'
 
@@ -12,12 +11,14 @@ import { APPLICATION_STATUS_LABELS, type ApplicationStatus } from '@/lib/db/enum
  */
 export function ApplyBar({
   opportunityId,
+  slug,
   officialUrl,
   initialSaved,
   applicationStatus,
   eligible,
 }: {
   opportunityId: string
+  slug: string
   officialUrl: string
   initialSaved: boolean
   applicationStatus: string | null
@@ -69,8 +70,9 @@ export function ApplyBar({
             {APPLICATION_STATUS_LABELS[(applicationStatus ?? 'PREPARING') as ApplicationStatus]}
           </span>
         ) : (
-          <form action={startApplicationForm} style={{ flex: '1 1 180px', display: 'flex' }}>
+          <form method="post" action="/api/applications/start" style={{ flex: '1 1 180px', display: 'flex' }}>
             <input type="hidden" name="opportunityId" value={opportunityId} />
+            <input type="hidden" name="slug" value={slug} />
             <StartSubmit eligible={eligible} />
           </form>
         )}

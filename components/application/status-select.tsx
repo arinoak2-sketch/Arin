@@ -1,36 +1,31 @@
 'use client'
 
-import { useState, useTransition } from 'react'
-import { setApplicationStatus } from '@/lib/actions/opportunities'
+import { useFormStatus } from 'react-dom'
+import { setApplicationStatusForm } from '@/lib/actions/opportunities'
 import { APPLICATION_STATUSES, APPLICATION_STATUS_LABELS, type ApplicationStatus } from '@/lib/db/enums'
 
+/**
+ * Status change as a form post.
+ *
+ * A select whose only trigger is onChange needs JavaScript to do anything, so
+ * this pairs it with a real submit button. The button stays visible for
+ * everyone rather than being hidden once JS loads — a control that appears and
+ * disappears depending on how fast the page loaded is worse than one that is
+ * simply always there.
+ */
 export function StatusSelect({ applicationId, status }: { applicationId: string; status: string }) {
-  const [value, setValue] = useState(status)
-  const [pending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
+  const id = `status-${applicationId}`
 
   return (
-    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-      <label htmlFor={`status-${applicationId}`} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
+    <form action={setApplicationStatusForm} style={{ display: 'inline-flex', gap: 7, alignItems: 'center' }}>
+      <input type="hidden" name="applicationId" value={applicationId} />
+      <label htmlFor={id} style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>
         Application status
       </label>
       <select
-        id={`status-${applicationId}`}
-        value={value}
-        disabled={pending}
-        onChange={(e) => {
-          const next = e.target.value
-          const previous = value
-          setValue(next)
-          setError(null)
-          startTransition(async () => {
-            const result = await setApplicationStatus(applicationId, next)
-            if (!result.ok) {
-              setValue(previous)
-              setError('Could not change the status.')
-            }
-          })
-        }}
+        id={id}
+        name="status"
+        defaultValue={status}
         style={{
           minHeight: 40,
           padding: '8px 11px',
@@ -38,7 +33,7 @@ export function StatusSelect({ applicationId, status }: { applicationId: string;
           border: '1px solid var(--border-strong)',
           background: 'var(--surface-raised)',
           fontSize: 13.5,
-          cursor: pending ? 'wait' : 'pointer',
+          cursor: 'pointer',
         }}
       >
         {APPLICATION_STATUSES.map((s) => (
@@ -47,11 +42,30 @@ export function StatusSelect({ applicationId, status }: { applicationId: string;
           </option>
         ))}
       </select>
-      {error ? (
-        <span role="alert" style={{ fontSize: 12, color: 'var(--urgent)' }}>
-          {error}
-        </span>
-      ) : null}
-    </span>
+      <StatusSubmit />
+    </form>
+  )
+}
+
+function StatusSubmit() {
+  const { pending } = useFormStatus()
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      style={{
+        minHeight: 40,
+        padding: '8px 13px',
+        borderRadius: 'var(--radius-input)',
+        border: '1px solid var(--border-strong)',
+        background: 'var(--surface-sunken)',
+        fontSize: 13,
+        fontWeight: 600,
+        cursor: pending ? 'wait' : 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {pending ? 'Saving…' : 'Update status'}
+    </button>
   )
 }
