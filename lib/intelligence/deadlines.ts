@@ -46,7 +46,14 @@ export function urgencyOf(date: Date, now: Date = new Date()): UrgencyBand {
   return BANDS.CALM
 }
 
-/** "Due in 5 days" / "Due today" / "Closed 3 days ago" — always words, never just a colour. */
+/**
+ * "Due in 5 days" / "Due today" / "Closed 3 days ago" — always words, never
+ * just a colour.
+ *
+ * Deadline wording only. A date the student cannot miss is not "due" and does
+ * not "close", so non-actionable kinds go through neutralCountdownText via
+ * countdownFor.
+ */
 export function countdownText(date: Date, now: Date = new Date()): string {
   const days = daysBetween(date, now)
   if (days < -1) return `Closed ${Math.abs(days)} days ago`
@@ -57,6 +64,45 @@ export function countdownText(date: Date, now: Date = new Date()): string {
   const weeks = Math.round(days / 7)
   if (weeks < 9) return `Due in ${weeks} weeks`
   return `Due in ${Math.round(days / 30)} months`
+}
+
+/**
+ * The same interval said without implying an obligation: "in 5 days", "2 days
+ * ago". Used for programme dates, results and the day applications open.
+ */
+export function neutralCountdownText(date: Date, now: Date = new Date()): string {
+  const days = daysBetween(date, now)
+  if (days < -1) return `${Math.abs(days)} days ago`
+  if (days < 0) return 'Yesterday'
+  if (days === 0) return 'Today'
+  if (days === 1) return 'Tomorrow'
+  if (days <= 27) return `In ${days} days`
+  const weeks = Math.round(days / 7)
+  if (weeks < 9) return `In ${weeks} weeks`
+  return `In ${Math.round(days / 30)} months`
+}
+
+/**
+ * Picks the wording for a kind.
+ *
+ * Applying deadline language to every date produced statements that were
+ * simply false: "Results announced · Closed 3 days ago" (they were announced,
+ * not closed) and, worst of all, "Applications open · Closed 2 days ago" —
+ * which tells a student a programme is shut on the evidence that it opened.
+ */
+export const countdownFor = (kind: string, date: Date, now: Date = new Date()): string =>
+  isActionableDeadline(kind) ? countdownText(date, now) : neutralCountdownText(date, now)
+
+/**
+ * The urgency band, adjusted for kinds that cannot expire.
+ *
+ * A past programme start is not "Closed" — the programme is running, or has
+ * run. Only a missed actionable deadline closes anything.
+ */
+export function bandFor(kind: string, date: Date, now: Date = new Date()): UrgencyBand {
+  const band = urgencyOf(date, now)
+  if (band.level !== 'PASSED' || isActionableDeadline(kind)) return band
+  return { ...band, label: kind === 'APPLICATION_OPENS' ? 'Open now' : 'Already happened' }
 }
 
 export interface TriagedDeadline {
@@ -90,8 +136,8 @@ export function triage(
       label: DEADLINE_LABELS[d.kind as DeadlineKind] ?? d.kind,
       date: d.date,
       endDate: d.endDate ?? null,
-      urgency: urgencyOf(d.date, now),
-      countdown: countdownText(d.date, now),
+      urgency: bandFor(d.kind, d.date, now),
+      countdown: countdownFor(d.kind, d.date, now),
       actionable: isActionableDeadline(d.kind),
       isRollingAdmission: d.isRollingAdmission ?? false,
       isEstimated: d.isEstimated ?? false,

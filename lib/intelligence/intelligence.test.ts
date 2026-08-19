@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { assessWorth, BANNED_CLAIM_PATTERNS, buildBenefits, violatesClaimPolicy } from './benefits'
 import { buildChecklist, classifyRequirement, taskUrgency } from './checklist'
-import { bucketByUrgency, countdownText, countDueWithin, primaryDeadline, triage, urgencyOf } from './deadlines'
+import {
+  bandFor,
+  bucketByUrgency,
+  countdownFor,
+  countdownText,
+  countDueWithin,
+  neutralCountdownText,
+  primaryDeadline,
+  triage,
+  urgencyOf,
+} from './deadlines'
 import { computeReadiness, reminderText, type ReadinessTask } from './readiness'
 import type { ScorableOpportunity, ScorableProfile } from './types'
 
@@ -223,5 +233,62 @@ describe('benefit claims', () => {
 
   it('has a non-empty claim policy', () => {
     expect(BANNED_CLAIM_PATTERNS.length).toBeGreaterThan(5)
+  })
+})
+
+
+describe('countdown wording follows the kind of date', () => {
+  const now = new Date('2026-03-01T00:00:00Z')
+  const past = new Date('2026-02-27T00:00:00Z')
+  const future = new Date('2026-03-06T00:00:00Z')
+
+  it('says a deadline is due, and closed once it passes', () => {
+    expect(countdownFor('APPLICATION_DEADLINE', future, now)).toBe('Due in 5 days')
+    expect(countdownFor('APPLICATION_DEADLINE', past, now)).toBe('Closed 2 days ago')
+  })
+
+  it('never tells a student a programme date is due or closed', () => {
+    for (const kind of ['PROGRAM_START', 'PROGRAM_END', 'RESULT_DATE', 'NOTIFICATION_DATE']) {
+      expect(countdownFor(kind, future, now), kind).not.toMatch(/due/i)
+      expect(countdownFor(kind, past, now), kind).not.toMatch(/closed/i)
+    }
+  })
+
+  it('does not describe an opened application as closed', () => {
+    // The bug this guards: applications opening two days ago is evidence the
+    // programme is OPEN. Deadline wording turned that into "Closed 2 days ago".
+    expect(countdownFor('APPLICATION_OPENS', past, now)).toBe('2 days ago')
+    expect(bandFor('APPLICATION_OPENS', past, now).label).toBe('Open now')
+  })
+
+  it('keeps the closed label for a genuinely missed deadline', () => {
+    expect(bandFor('APPLICATION_DEADLINE', past, now).label).toBe('Closed')
+  })
+
+  it('labels other passed dates as having happened rather than closed', () => {
+    expect(bandFor('PROGRAM_END', past, now).label).toBe('Already happened')
+  })
+
+  it('leaves unpassed bands untouched whatever the kind', () => {
+    expect(bandFor('PROGRAM_START', future, now).label).toBe(urgencyOf(future, now).label)
+  })
+
+  it('states both wordings in plain language, never colour alone', () => {
+    expect(neutralCountdownText(new Date('2026-03-01T00:00:00Z'), now)).toBe('Today')
+    expect(countdownText(new Date('2026-03-01T00:00:00Z'), now)).toBe('Due today')
+  })
+
+  it('applies the right wording through triage', () => {
+    const rows = triage(
+      [
+        { kind: 'APPLICATION_DEADLINE', date: future },
+        { kind: 'APPLICATION_OPENS', date: past },
+      ],
+      now,
+    )
+    const opens = rows.find((r) => r.kind === 'APPLICATION_OPENS')
+    expect(opens?.countdown).toBe('2 days ago')
+    expect(opens?.actionable).toBe(false)
+    expect(rows.find((r) => r.kind === 'APPLICATION_DEADLINE')?.countdown).toBe('Due in 5 days')
   })
 })

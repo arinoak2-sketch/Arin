@@ -78,7 +78,8 @@ export const ELIGIBILITY_OPERATORS = [
 
 export const DEADLINE_KINDS = [
   'APPLICATION_DEADLINE', 'EARLY_DEADLINE', 'REGISTRATION_DEADLINE', 'DOCUMENT_DEADLINE',
-  'INTERVIEW_WINDOW', 'PROGRAM_START', 'PROGRAM_END', 'RESULT_DATE', 'NOTIFICATION_DATE',
+  'INTERVIEW_WINDOW', 'APPLICATION_OPENS', 'PROGRAM_START', 'PROGRAM_END', 'RESULT_DATE',
+  'NOTIFICATION_DATE',
 ] as const
 
 /** Human labels. A student must never confuse these two kinds of date. */
@@ -88,6 +89,7 @@ export const DEADLINE_LABELS: Record<(typeof DEADLINE_KINDS)[number], string> = 
   REGISTRATION_DEADLINE: 'Registration deadline',
   DOCUMENT_DEADLINE: 'Documents due',
   INTERVIEW_WINDOW: 'Interview window',
+  APPLICATION_OPENS: 'Applications open',
   PROGRAM_START: 'Programme starts',
   PROGRAM_END: 'Programme ends',
   RESULT_DATE: 'Results announced',

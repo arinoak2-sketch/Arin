@@ -24,7 +24,23 @@ let page: Page
 test.beforeAll(async ({ browser }) => {
   await clearUser(EMAIL)
   await seedFixtures()
-  context = await browser.newContext({ javaScriptEnabled: false })
+  /*
+   * reducedMotion is set for a mechanical reason, not a cosmetic one.
+   *
+   * Playwright decides an element is clickable once its box is unchanged
+   * across two animation frames. A page with scripting disabled stops
+   * producing frames the moment it goes idle — so the 180ms entrance
+   * animation on the card list ticked a few frames, finished, and then the
+   * page went quiet with the check still waiting. It never resolved, and the
+   * click timed out after 20s having found a perfectly good button.
+   *
+   * Reduced motion switches that animation off (see globals.css), so the box
+   * is settled from the first paint. It is also the honest setting for this
+   * suite: someone browsing without JavaScript is on a constrained device,
+   * where reduced motion is more common, not less. The animated path stays
+   * covered by the journey and accessibility suites, which run with motion on.
+   */
+  context = await browser.newContext({ javaScriptEnabled: false, reducedMotion: 'reduce' })
   page = await context.newPage()
 })
 

@@ -24,9 +24,16 @@ export default defineConfig({
    * defined. This is a bug in Next.js." It cannot happen in a production build,
    * where nothing compiles at request time.
    *
-   * This does not risk hiding a real defect: every genuine bug this suite has
-   * caught failed on every single run until it was fixed. A test that passes on
-   * retry has hit the compile race; a test that fails twice has found something.
+   * The same applies, more slowly, to the first run after `.next` is deleted:
+   * warming compiles the routes, but a page rendering components it has not
+   * built yet — /applications once it actually holds an application — can still
+   * pass 20s. Observed failing twice and passing on the third attempt with no
+   * code change, then passing immediately on every subsequent run.
+   *
+   * So "fails twice" is evidence, not proof. What has held for every genuine
+   * bug this suite caught is that it failed on every run, in isolation, and
+   * kept failing until the code changed — that is the test to apply before
+   * dismissing a failure as the compile race.
    */
   retries: 2,
   reporter: [['list']],

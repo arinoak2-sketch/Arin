@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { prisma } from '@/lib/db/client'
+import { decodeStringArray } from '@/lib/db/codec'
 import { decodeProvenance, METHOD_EXPLANATION } from '@/lib/discovery/provenance'
 import { searchBudgetStatus } from '@/lib/discovery/pipeline'
 import { retentionPreview } from '@/lib/jobs/retention'
@@ -125,7 +126,7 @@ export default async function AdminPage() {
                       {report.opportunity.title}
                     </Link>
                     <span style={{ fontSize: 12.5, color: 'var(--text-tertiary)' }}>
-                      {formatDate(report.createdAt)} · {JSON.parse(report.fieldsTouched || '[]').join(', ').toLowerCase().replace(/_/g, ' ')}
+                      {formatDate(report.createdAt)} · {reportedFields(report.fieldsTouched)}
                       {report.note ? ` — ${report.note}` : ''}
                     </span>
                   </Stack>
@@ -257,4 +258,16 @@ function Metric({
       </Stack>
     </Card>
   )
+}
+
+/**
+ * A student's report names the fields they think are wrong. Decoded through the
+ * codec rather than JSON.parse: this is the admin queue, so the one row most
+ * likely to hold a malformed value is exactly the row someone came here to fix,
+ * and it must not be the row that takes the page down.
+ */
+function reportedFields(raw: string | null | undefined): string {
+  const fields = decodeStringArray(raw)
+  if (fields.length === 0) return 'no fields named'
+  return fields.join(', ').toLowerCase().replace(/_/g, ' ')
 }

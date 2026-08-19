@@ -137,3 +137,56 @@ npx prisma studio     # set your User.role to ADMIN
 ```
 
 Then `/admin` shows the review queue and data-quality dashboard.
+
+## Running the end-to-end suites
+
+They drive a **development** server you start yourself, and they must reach it on port 3000:
+
+```bash
+npm run dev          # leave running
+npm run test:e2e     # journey, then accessibility, then no-JavaScript
+```
+
+A production build would be the more stable target, and cannot hit the compile race described
+below — but it is not usable here: `next start` runs with `NODE_ENV=production`, where
+`assertProductionSafety()` refuses the development sign-in these suites depend on. Testing against
+production would require real Google OAuth credentials.
+
+### Three things that will waste your afternoon
+
+**A dev server left over from an earlier session.** It keeps port 3000 and serves the code it
+started with, so a run can pass or fail against something other than your working tree. Next then
+starts your new server on 3001 with only a one-line warning, and the suites keep testing the old
+one. `e2e/global-setup.ts` now refuses to run when nothing usable answers on the base URL and says
+this explicitly, but it cannot tell a stale server from a fresh one — if results look impossible,
+check `fuser -n tcp 3000` first. (`ss` is not installed in every container; it failing is not
+evidence the port is free.)
+
+**Editing source while the suites run.** Fast Refresh invalidates, and a full rebuild landing in the
+middle of a form redirect produces `SyntaxError: Unexpected end of JSON input` and a 500 on whatever
+page the 303 pointed at. It looks like a product bug and is not one. Let a run finish.
+
+**A cold `.next`.** The first run after deleting it pays compile costs the warm-up cannot fully
+absorb. `allowedDevOrigins: ['127.0.0.1']` in `next.config.ts` removed most of this: the suites use
+`127.0.0.1` while the server calls itself `localhost`, and Next treated that as cross-origin and
+fell back to full reloads. With that set, and with the authenticated warm-up in `global-setup.ts`,
+the journey and accessibility suites run clean; the no-JavaScript suite still trips the compile race
+roughly once per chained run and passes on retry.
+
+### Why global setup signs in
+
+Warming pages with an unauthenticated request is nearly useless — they redirect to `/signin` before
+rendering, so the components that actually take time never compile, and the first real test paid
+about 25 seconds for it. Setup now signs in once through the real UI (sign-in is a server action, so
+driving it over plain HTTP would mean reimplementing the RSC action protocol), walks the
+authenticated pages, and deletes the warm-up user.
+
+### Why the no-JavaScript suite requests reduced motion
+
+Not cosmetic. Playwright considers an element clickable once its box is unchanged across two
+animation frames; a page with scripting disabled stops producing frames once idle. The 180ms
+entrance animation ticked a few frames, finished, and the page went quiet with the check still
+waiting — a 20-second timeout on a perfectly good button. Reduced motion switches that animation off
+at source. It is also the honest setting for the suite: someone browsing without JavaScript is on a
+constrained device, where reduced motion is more common, not less. Motion stays covered by the other
+two suites.

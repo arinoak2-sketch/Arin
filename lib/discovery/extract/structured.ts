@@ -86,13 +86,24 @@ const typeOf = (node: JsonLdNode): string[] => {
 const str = (v: unknown): string | null =>
   typeof v === 'string' && v.trim().length > 0 ? v.trim() : null
 
+/**
+ * Reads a number, refusing anything that is not actually one.
+ *
+ * The obvious implementation — strip non-digits, then Number() — has a trap:
+ * "contact us" reduces to the empty string, and Number('') is 0. A price of 0
+ * publishes "Free" at HIGH confidence, so a page that declined to state its fee
+ * would be advertised to students as free. The digits must be present in the
+ * source, and thousands separators are the only punctuation removed.
+ */
 const num = (v: unknown): number | null => {
-  if (typeof v === 'number' && Number.isFinite(v)) return v
-  if (typeof v === 'string') {
-    const n = Number(v.replace(/[^0-9.]/g, ''))
-    return Number.isFinite(n) && v.trim().length > 0 ? n : null
-  }
-  return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v !== 'string') return null
+  const trimmed = v.trim()
+  // Optional currency symbol/code, then a number that must contain a digit.
+  const m = /^[^\d.,-]*(-?\d[\d,]*(?:\.\d+)?)[^\d]*$/.exec(trimmed)
+  if (!m?.[1]) return null
+  const n = Number(m[1].replace(/,/g, ''))
+  return Number.isFinite(n) ? n : null
 }
 
 export function extractFromHtml(html: string, url: string, fetchedAt: Date = new Date()): ExtractionResult {
@@ -125,34 +136,42 @@ export function extractFromHtml(html: string, url: string, fetchedAt: Date = new
       if (pname) result.organizerName = { value: pname, provenance: markup(pname) }
     }
 
-    // Application deadline is published directly by some programme schemas.
-    const appDeadline = str(node.applicationDeadline) ?? str(node.applicationStartDate)
-    if (appDeadline) {
-      const parsed = parseDate(appDeadline)
-      if (parsed) {
-        result.deadlines.push({
-          value: { kind: 'APPLICATION_DEADLINE', date: parsed.date, isRollingAdmission: false },
-          provenance: markup(appDeadline),
-        })
-      }
-    }
-    for (const [key, kind] of [['startDate', 'PROGRAM_START'], ['endDate', 'PROGRAM_END']] as const) {
+    /*
+     * Typed dates.
+     *
+     * applicationStartDate is when applications OPEN, not when they close.
+     * Reading it as a deadline would show a student "deadline: 15 January" for
+     * a programme that closes in June — telling them to rush, or that they have
+     * missed something still open. Each schema property maps to exactly the
+     * kind it means, and nothing maps to APPLICATION_DEADLINE by approximation.
+     */
+    const DATE_PROPERTIES = [
+      ['applicationDeadline', 'APPLICATION_DEADLINE'],
+      ['applicationStartDate', 'APPLICATION_OPENS'],
+      ['startDate', 'PROGRAM_START'],
+      ['endDate', 'PROGRAM_END'],
+    ] as const
+    for (const [key, kind] of DATE_PROPERTIES) {
       const raw = str(node[key])
       if (!raw) continue
       const parsed = parseDate(raw)
-      if (parsed) {
-        result.deadlines.push({
-          value: { kind, date: parsed.date, isRollingAdmission: false },
-          provenance: markup(raw),
-        })
-      }
+      if (!parsed) continue
+      pushDeadline(result, kind, parsed.date, markup(raw))
     }
 
-    // Attendance mode
+    /*
+     * Attendance mode.
+     *
+     * Only the vocabulary schema.org actually defines is recognised. An
+     * unrecognised value such as "self-paced" or "full-time" says nothing about
+     * whether a student would have to travel, and format carries real weight in
+     * matching — so it is left null for the text stage rather than defaulted to
+     * in-person, which was silently inventing a travel requirement.
+     */
     const mode = str(node.courseMode) ?? str(node.eventAttendanceMode)
     if (mode && !result.format) {
-      const f = /online|virtual/i.test(mode) ? 'ONLINE' : /mixed|hybrid/i.test(mode) ? 'HYBRID' : 'IN_PERSON'
-      result.format = { value: f, provenance: markup(mode) }
+      const f = attendanceMode(mode)
+      if (f) result.format = { value: f, provenance: markup(mode) }
     }
 
     // Location
@@ -200,9 +219,22 @@ export function extractFromHtml(html: string, url: string, fetchedAt: Date = new
   }
 
   // OpenGraph / meta as a fallback for the basics only.
+  /*
+   * OpenGraph is markup the publisher wrote for machines, so it keeps the
+   * STRUCTURED_MARKUP method. The <title> element is not: it is prose, usually
+   * carrying site branding ("Programme | Example University"), and students are
+   * told STRUCTURED_MARKUP means "published in the page's own structured data
+   * by the organiser". Attributing a title tag that way would make that
+   * sentence untrue, so it drops a tier.
+   */
   if (!result.title) {
-    const og = $('meta[property="og:title"]').attr('content') ?? $('title').first().text()
-    if (og?.trim()) result.title = { value: og.trim(), provenance: markup(og.trim()) }
+    const og = $('meta[property="og:title"]').attr('content')?.trim()
+    if (og) {
+      result.title = { value: og, provenance: markup(og) }
+    } else {
+      const titleTag = $('title').first().text().trim()
+      if (titleTag) result.title = { value: titleTag, provenance: pageText(titleTag) }
+    }
   }
   if (!result.summary) {
     const og =
@@ -221,13 +253,16 @@ export function extractFromHtml(html: string, url: string, fetchedAt: Date = new
 
   // Only fill what markup did not already provide. Markup always wins.
   const referenceYear = new Date(fetchedAt).getUTCFullYear()
-  if (result.deadlines.length === 0) {
-    for (const d of extractDates(text, referenceYear)) {
-      result.deadlines.push({
-        value: { kind: d.kind, date: d.date, isRollingAdmission: d.isRollingAdmission },
-        provenance: pageText(d.rawText),
-      })
-    }
+  /*
+   * Text dates fill in per KIND, not all-or-nothing. The old condition skipped
+   * the text scan entirely once markup had produced any date at all, so a page
+   * publishing only startDate in JSON-LD and "applications close 3 March" in
+   * prose lost the one date the student actually needed.
+   */
+  const kindsFromMarkup = new Set(result.deadlines.map((d) => d.value.kind))
+  for (const d of extractDates(text, referenceYear)) {
+    if (kindsFromMarkup.has(d.kind)) continue
+    pushDeadline(result, d.kind, d.date, pageText(d.rawText), d.isRollingAdmission)
   }
   if (!result.format) {
     const f = extractFormat(text)
@@ -251,6 +286,42 @@ export function extractFromHtml(html: string, url: string, fetchedAt: Date = new
 
   result.gaps = computeGaps(result)
   return result
+}
+
+/**
+ * Adds a dated entry unless the same kind and day is already recorded.
+ *
+ * Listing pages repeat the same programme across several JSON-LD nodes, which
+ * produced the identical start date two or three times over. Showing a student
+ * "Programme starts 6 July" three times reads like three separate facts.
+ */
+function pushDeadline(
+  result: ExtractionResult,
+  kind: string,
+  date: Date,
+  provenance: FieldProvenance,
+  isRollingAdmission = false,
+): void {
+  const key = `${kind}:${date.toISOString().slice(0, 10)}`
+  const exists = result.deadlines.some(
+    (d) => `${d.value.kind}:${d.value.date.toISOString().slice(0, 10)}` === key,
+  )
+  if (exists) return
+  result.deadlines.push({ value: { kind, date, isRollingAdmission }, provenance })
+}
+
+/**
+ * Maps schema.org attendance vocabulary to a format, or null when the value is
+ * outside it. Canonical values are URLs such as
+ * https://schema.org/OnlineEventAttendanceMode; bare words are accepted too
+ * because publishers commonly write them.
+ */
+function attendanceMode(raw: string): 'ONLINE' | 'IN_PERSON' | 'HYBRID' | null {
+  if (/\b(mixed|hybrid|blended)\b/i.test(raw) || /MixedEventAttendanceMode/i.test(raw)) return 'HYBRID'
+  if (/\b(online|virtual|remote|distance)\b/i.test(raw) || /OnlineEventAttendanceMode/i.test(raw)) return 'ONLINE'
+  if (/\b(offline|in[-\s]?person|on[-\s]?site|onsite|full[-\s]?time\s+on\s+campus)\b/i.test(raw)) return 'IN_PERSON'
+  if (/OfflineEventAttendanceMode/i.test(raw)) return 'IN_PERSON'
+  return null
 }
 
 /** Fields still missing — the only things the AI stage is ever allowed to touch. */

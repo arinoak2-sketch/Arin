@@ -60,3 +60,33 @@ If a paid placement ever exists, it is a separate `isSponsored` boolean that (a)
 persistent, non-dismissable "Sponsored" label, (b) is excluded from the match score entirely, and
 (c) cannot alter ranking within results. Sponsorship may buy visibility in a clearly demarcated
 slot; it may never buy a better match score. This is enforced in the ranking function, not in policy.
+
+## What testing the extractor found
+
+`lib/discovery/extract/structured.ts` produces the `STRUCTURED_MARKUP` tier, which carries `HIGH`
+confidence and is rendered to students as *"published in the page's own structured data by the
+organiser"*. It was the largest module in the pipeline with no direct tests. Writing them
+(`structured.test.ts`, 26 cases) found six defects, all of which had shipped, and all of which
+produced a confident statement rather than a missing value — the worst possible failure mode here.
+
+| What it did | What a student would have seen | Now |
+|---|---|---|
+| Read schema.org `applicationStartDate` as an application deadline | "Deadline: 15 January" for a programme that opens then and closes in June | A separate `APPLICATION_OPENS` kind, never conflated with a deadline |
+| Stopped scanning page text for dates once markup produced *any* date | A page with `startDate` in JSON-LD and "applications close 3 March" in prose lost the closing date entirely | Text fills in per kind, so a missing deadline is still looked for |
+| `Number('')` is `0`, so an unparseable price became a zero price | "Free" on a page that said "contact us" for its fee | A price must contain digits in the source, or there is no cost claim |
+| Defaulted an unrecognised `courseMode` to `IN_PERSON` | An invented travel requirement, and a wrong format dimension in matching | Only schema.org's own vocabulary is recognised; anything else stays null |
+| Attributed the `<title>` element to `STRUCTURED_MARKUP` | "Published in the page's own structured data" about "Programme \| Example University" | A title tag is page text and is labelled as such; OpenGraph keeps the markup tier |
+| Pushed one date per JSON-LD node | The same start date listed two or three times, reading as three facts | Deduplicated by kind and day |
+
+The pattern worth keeping: every one of these is a case where the code chose a plausible value over
+no value. That is the single failure this product cannot tolerate, and it is why the tests here
+assert as hard on what is *refused* as on what is extracted.
+
+## Dates are described by kind, not by deadline language
+
+`countdownText` applied deadline wording to every date, so the interface said "Results announced ·
+Closed 3 days ago" and — once `APPLICATION_OPENS` existed — "Applications open · Closed 2 days ago",
+which states the opposite of the truth: a programme that opened two days ago is open. `countdownFor`
+and `bandFor` in `lib/intelligence/deadlines.ts` now pick wording from the kind. Only actionable
+kinds are ever "due" or "closed"; everything else is "in 5 days" or "2 days ago", and a passed
+non-actionable date reads "Already happened", or "Open now" for applications opening.
