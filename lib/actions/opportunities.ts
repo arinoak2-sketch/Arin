@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { redirect } from 'next/navigation'
 import { z } from 'zod'
 import { requireUser } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
@@ -141,6 +142,24 @@ export async function toggleTaskForm(formData: FormData) {
 
   revalidatePath('/applications')
   revalidatePath('/dashboard')
+}
+
+/**
+ * Form-post variant of starting an application.
+ *
+ * This is the most consequential button in the product, so it must not depend
+ * on React having hydrated. Redirects to the tracker on success, which is also
+ * what a plain HTML form does without any JavaScript at all.
+ */
+export async function startApplicationForm(formData: FormData) {
+  const opportunityId = idSchema.parse(String(formData.get('opportunityId') ?? ''))
+  const result = await startApplication(opportunityId)
+  if (!result.ok) {
+    // Nothing to recover from here beyond telling the student where they are;
+    // the opportunity page will render the current state on arrival.
+    redirect(`/discover`)
+  }
+  redirect('/applications')
 }
 
 export async function toggleTask(taskId: string, complete: boolean) {

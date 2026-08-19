@@ -1,8 +1,7 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
-import { useState, useTransition } from 'react'
-import { startApplication } from '@/lib/actions/opportunities'
+import { useFormStatus } from 'react-dom'
+import { startApplicationForm } from '@/lib/actions/opportunities'
 import { SaveButton } from '@/components/discover/save-button'
 import { APPLICATION_STATUS_LABELS, type ApplicationStatus } from '@/lib/db/enums'
 
@@ -24,23 +23,7 @@ export function ApplyBar({
   applicationStatus: string | null
   eligible: boolean
 }) {
-  const router = useRouter()
-  const [started, setStarted] = useState(applicationStatus !== null)
-  const [pending, startTransition] = useTransition()
-  const [error, setError] = useState<string | null>(null)
-
-  function begin() {
-    setError(null)
-    startTransition(async () => {
-      const result = await startApplication(opportunityId)
-      if (result.ok) {
-        setStarted(true)
-        router.push('/applications')
-      } else {
-        setError(result.error ?? 'Could not start that application.')
-      }
-    })
-  }
+  const started = applicationStatus !== null
 
   return (
     <div
@@ -56,11 +39,6 @@ export function ApplyBar({
         paddingBottom: 'env(safe-area-inset-bottom)',
       }}
     >
-      {error ? (
-        <p role="alert" style={{ margin: 0, padding: '7px 20px 0', fontSize: 12.5, color: 'var(--urgent)' }}>
-          {error}
-        </p>
-      ) : null}
       <div
         style={{
           maxWidth: 1200,
@@ -91,26 +69,10 @@ export function ApplyBar({
             {APPLICATION_STATUS_LABELS[(applicationStatus ?? 'PREPARING') as ApplicationStatus]}
           </span>
         ) : (
-          <button
-            type="button"
-            onClick={begin}
-            disabled={pending || !eligible}
-            title={eligible ? undefined : 'Lumen reads this as outside the stated eligibility.'}
-            style={{
-              flex: '1 1 180px',
-              minHeight: 44,
-              padding: '10px 18px',
-              borderRadius: 'var(--radius-input)',
-              border: 'none',
-              background: eligible ? 'var(--accent)' : 'var(--surface-sunken)',
-              color: eligible ? 'var(--accent-contrast)' : 'var(--text-tertiary)',
-              fontWeight: 650,
-              fontSize: 14.5,
-              cursor: eligible ? 'pointer' : 'not-allowed',
-            }}
-          >
-            {pending ? 'Starting…' : 'Start application'}
-          </button>
+          <form action={startApplicationForm} style={{ flex: '1 1 180px', display: 'flex' }}>
+            <input type="hidden" name="opportunityId" value={opportunityId} />
+            <StartSubmit eligible={eligible} />
+          </form>
         )}
 
         <a
@@ -133,5 +95,34 @@ export function ApplyBar({
         </a>
       </div>
     </div>
+  )
+}
+
+/**
+ * Separate component so useFormStatus can read the enclosing form's state —
+ * the hook only reports on a form above it in the tree.
+ */
+function StartSubmit({ eligible }: { eligible: boolean }) {
+  const { pending } = useFormStatus()
+  return (
+    <button
+      type="submit"
+      disabled={pending || !eligible}
+      title={eligible ? undefined : 'Lumen reads this as outside the stated eligibility.'}
+      style={{
+        flex: 1,
+        minHeight: 44,
+        padding: '10px 18px',
+        borderRadius: 'var(--radius-input)',
+        border: 'none',
+        background: eligible ? 'var(--accent)' : 'var(--surface-sunken)',
+        color: eligible ? 'var(--accent-contrast)' : 'var(--text-tertiary)',
+        fontWeight: 650,
+        fontSize: 14.5,
+        cursor: eligible ? 'pointer' : 'not-allowed',
+      }}
+    >
+      {pending ? 'Starting…' : 'Start application'}
+    </button>
   )
 }

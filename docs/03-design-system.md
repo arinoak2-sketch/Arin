@@ -13,10 +13,10 @@ neither is a filter over the other.
 | `--surface-canvas` | `#FBFBF9` | `#0C0F0E` | Page ground |
 | `--surface-raised` | `#FFFFFF` | `#141917` | Cards, sheets |
 | `--surface-sunken` | `#F4F5F2` | `#090C0B` | Wells, inputs |
-| `--border-hairline` | `#E7E8E3` | `#232A27` | 1px dividers |
+| `--border-hairline` | `#E7E8E3` | `#232A27` | Decorative dividers between rows |
 | `--text-primary` | `#111814` | `#F2F4F1` | Headlines, body |
-| `--text-secondary` | `#5A635C` | `#A3ADA6` | Support (4.6:1 both) |
-| `--text-tertiary` | `#828A83` | `#7C857E` | Metadata (min 4.5:1) |
+| `--text-secondary` | `#5A635C` | `#A3ADA6` | Support (5.7:1 light, 7.7:1 dark) |
+| `--text-tertiary` | `#666E67` | `#868F88` | Metadata (4.8:1 light, 5.3:1 dark) |
 | `--accent` | `#0E7C55` | `#34D399` | Primary action, match |
 | `--accent-wash` | `#ECFDF3` | `#0F241C` | Selected, subtle fills |
 | `--accent-contrast` | `#FFFFFF` | `#04120C` | Text on accent |
@@ -31,8 +31,21 @@ Status colours are always paired with an icon and a word — never colour alone 
 | `--calm` `#0E7C55` | 🟢 >21 days | "Due in 6 weeks" |
 | `--caution` `#7A5AF8` | ⚠️ | Unverified / needs review |
 
-Contrast: all text pairs ≥ 4.5:1, large text ≥ 3:1, UI borders ≥ 3:1 — verified by an automated
-token-contrast test in CI, not by eye.
+Contrast: every text token is ≥ 4.5:1 against **every** surface in its own theme,
+not just against the page background — a value that passes on canvas can still
+fail on the sunken surface it actually sits on, which is exactly what happened
+to `--text-tertiary` (3.82:1 on sunken) until an axe run caught it.
+
+`lib/design/contrast.test.ts` parses `app/globals.css` and asserts the real
+values, so the palette cannot regress quietly, and `e2e/accessibility.spec.ts`
+runs axe over every page in both themes.
+
+The two border tokens are held to different standards on purpose.
+`--border-hairline` separates rows in a list and carries no meaning, so WCAG
+1.4.11 does not apply to it. `--border-strong` is the *edge of a form control*
+— it is how you can tell where an input begins — so it must clear 3:1. It was
+at 1.34:1 in light and 1.56:1 in dark until the token test caught it; axe never
+flagged it, because axe's contrast rule does not examine borders.
 
 ## Type
 

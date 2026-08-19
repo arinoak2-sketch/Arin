@@ -89,18 +89,18 @@ never seeded into a real deployment.
 Set `CRON_SECRET` (`openssl rand -hex 32`) and call it with that as a bearer
 token. The route refuses every request when the secret is unset or shorter than
 16 characters — an unauthenticated endpoint that deletes rows is worse than no
-endpoint.
+endpoint. GET and POST both work: Vercel Cron uses GET, and authorisation here
+is the bearer token alone, so there is no cookie authority for a prefetch or a
+cross-origin page to ride.
 
 ```bash
 curl -X POST https://YOUR_DOMAIN/api/cron/maintenance \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-On Vercel, add to `vercel.json`:
-
-```json
-{ "crons": [{ "path": "/api/cron/maintenance", "schedule": "0 3 * * *" }] }
-```
+On Vercel this is already wired in `vercel.json` (daily at 03:00 UTC). Vercel
+sends `Authorization: Bearer $CRON_SECRET` automatically, so setting the
+environment variable is the only step.
 
 Both jobs are also runnable by hand from `/admin`, which is the quickest way to
 confirm the retention policy is being kept.

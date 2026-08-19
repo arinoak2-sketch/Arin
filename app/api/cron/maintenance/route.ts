@@ -25,7 +25,7 @@ function authorised(request: Request): boolean {
   return timingSafeEqual(Buffer.from(provided), Buffer.from(secret))
 }
 
-export async function POST(request: Request) {
+async function run(request: Request) {
   if (!authorised(request)) {
     return NextResponse.json({ error: 'Not authorised.' }, { status: 401 })
   }
@@ -45,7 +45,15 @@ export async function POST(request: Request) {
   )
 }
 
-/** GET is deliberately unsupported: this endpoint deletes things. */
-export function GET() {
-  return NextResponse.json({ error: 'Use POST.' }, { status: 405 })
-}
+export const POST = run
+
+/**
+ * GET is supported because Vercel Cron invokes paths with GET, and shipping a
+ * schedule that quietly 405s would be worse than not shipping one.
+ *
+ * A destructive GET is normally a mistake because a browser or prefetcher can
+ * trigger it. That does not apply here: authorisation is a bearer token and
+ * nothing else. Cookies are never consulted, so there is no ambient authority
+ * to ride, and a cross-origin page cannot set an Authorization header.
+ */
+export const GET = run
