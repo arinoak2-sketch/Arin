@@ -18,6 +18,7 @@ import { ageAt } from '@/lib/repo/mappers'
  */
 
 const RECENT_WINDOW_MS = 6 * 60 * 60 * 1000
+const MAX_SEARCHES_PER_USER_PER_HOUR = 12
 
 export interface LiveSearchResult {
   ran: boolean
@@ -31,6 +32,19 @@ export interface LiveSearchResult {
 export async function runLiveSearch(rawQuery: string): Promise<LiveSearchResult> {
   const user = await requireUser()
   const query = z.string().max(200).parse(rawQuery ?? '').trim()
+
+  // Per-student ceiling, separate from the global monthly budget: one account
+  // must not be able to spend the whole allowance on everyone else's behalf.
+  const searchesThisHour = await prisma.discoveryQuery.count({
+    where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 60 * 60 * 1000) } },
+  })
+  if (searchesThisHour >= MAX_SEARCHES_PER_USER_PER_HOUR) {
+    return {
+      ran: false,
+      reason:
+        'You have run a lot of live searches in the past hour. These are stored results — live search resumes shortly.',
+    }
+  }
 
   const budget = await searchBudgetStatus()
   if (budget.exhausted) {

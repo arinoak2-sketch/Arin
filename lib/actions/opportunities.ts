@@ -185,6 +185,10 @@ export async function setApplicationStatus(applicationId: string, status: string
  * One student's report protects the next student, so this takes effect before
  * any human looks at it.
  */
+/** A report takes effect immediately, so the ability to file them is capped. */
+const MAX_REPORTS_PER_DAY = 20
+const DUPLICATE_REPORT_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+
 export async function reportOpportunity(opportunityId: string, reason: string, detail?: string) {
   const user = await requireUser()
   const parsedId = idSchema.parse(opportunityId)
@@ -197,6 +201,33 @@ export async function reportOpportunity(opportunityId: string, reason: string, d
     select: { verificationState: true },
   })
   if (!opportunity) return { ok: false as const, error: 'That opportunity no longer exists.' }
+
+  // Reporting drops a listing to "needs review" before any human sees it, which
+  // is right for the student who found the problem and wrong as an unlimited
+  // power. Without a cap, one account could flag the whole corpus.
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000)
+  const recentReports = await prisma.verificationEvent.count({
+    where: { actorUserId: user.id, action: 'REPORTED', createdAt: { gte: since } },
+  })
+  if (recentReports >= MAX_REPORTS_PER_DAY) {
+    return {
+      ok: false as const,
+      error: 'You have reported a lot of listings today. Please try again tomorrow.',
+    }
+  }
+
+  // Re-reporting the same listing is treated as already done rather than
+  // re-flagging it, so a double tap does not churn the review queue.
+  const alreadyReported = await prisma.verificationEvent.findFirst({
+    where: {
+      opportunityId: parsedId,
+      actorUserId: user.id,
+      action: 'REPORTED',
+      createdAt: { gte: new Date(Date.now() - DUPLICATE_REPORT_WINDOW_MS) },
+    },
+    select: { id: true },
+  })
+  if (alreadyReported) return { ok: true as const }
 
   await prisma.$transaction([
     prisma.opportunity.update({

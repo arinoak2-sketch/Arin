@@ -1,5 +1,7 @@
 import 'server-only'
 import { createHash } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { BLOCK_EXPLANATION, blockedHostname, blockedReason } from './net-guard'
 
 /**
  * Stage 3: fetching.
@@ -26,7 +28,40 @@ export interface FetchOutcome {
   fetchedAt: Date
   /** Populated when ok is false. Shown to admins, never shown as an opportunity. */
   error?: string
-  errorKind?: 'ROBOTS_DISALLOWED' | 'TIMEOUT' | 'HTTP_ERROR' | 'NOT_HTML' | 'TOO_LARGE' | 'NETWORK'
+  errorKind?:
+    | 'ROBOTS_DISALLOWED'
+    | 'TIMEOUT'
+    | 'HTTP_ERROR'
+    | 'NOT_HTML'
+    | 'TOO_LARGE'
+    | 'NETWORK'
+    | 'BLOCKED_ADDRESS'
+}
+
+/** Redirect hops to follow. Each one is re-checked against the SSRF guard. */
+const MAX_REDIRECTS = 4
+
+/**
+ * Refuses a URL whose host is, or resolves to, an address we must never ask
+ * the server to reach. Called for the original URL and again for every
+ * redirect hop, because a public URL redirecting inward is the usual bypass.
+ */
+async function assertPublicTarget(target: URL): Promise<string | null> {
+  const byName = blockedHostname(target.hostname)
+  if (byName) return `That address ${BLOCK_EXPLANATION[byName]}.`
+
+  // A hostname that looks public can still resolve to a private address.
+  try {
+    const results = await lookup(target.hostname, { all: true, verbatim: true })
+    for (const { address } of results) {
+      const reason = blockedReason(address)
+      if (reason) return `That address ${BLOCK_EXPLANATION[reason]}.`
+    }
+    if (results.length === 0) return 'That host could not be resolved.'
+  } catch {
+    return 'That host could not be resolved.'
+  }
+  return null
 }
 
 // ── robots.txt ───────────────────────────────────────────────────────────────
@@ -148,6 +183,13 @@ export async function fetchPage(url: string): Promise<FetchOutcome> {
     return { ok: false, url, fetchedAt, error: 'Unsupported protocol.', errorKind: 'NETWORK' }
   }
 
+  // Checked before robots.txt is fetched: that request is itself server-side,
+  // so it must not be the hole the guard leaves open.
+  const blockedTarget = await assertPublicTarget(parsed)
+  if (blockedTarget) {
+    return { ok: false, url, fetchedAt, error: blockedTarget, errorKind: 'BLOCKED_ADDRESS' }
+  }
+
   const rules = await loadRobots(parsed.origin)
   if (!robotsAllows(rules, parsed.pathname)) {
     return {
@@ -164,16 +206,50 @@ export async function fetchPage(url: string): Promise<FetchOutcome> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
-    const res = await fetch(url, {
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: 'text/html,application/xhtml+xml',
-        'Accept-Language': 'en',
-      },
-      redirect: 'follow',
-      signal: controller.signal,
-      cache: 'no-store',
-    })
+    // Redirects are followed by hand so every hop passes the SSRF guard.
+    let current = parsed
+    let res: Response | null = null
+
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+      const blocked = await assertPublicTarget(current)
+      if (blocked) {
+        return { ok: false, url, fetchedAt, error: blocked, errorKind: 'BLOCKED_ADDRESS' }
+      }
+
+      res = await fetch(current.toString(), {
+        headers: {
+          'User-Agent': USER_AGENT,
+          Accept: 'text/html,application/xhtml+xml',
+          'Accept-Language': 'en',
+        },
+        redirect: 'manual',
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+
+      if (res.status < 300 || res.status > 399) break
+
+      const location = res.headers.get('location')
+      if (!location) break
+      if (hop === MAX_REDIRECTS) {
+        return { ok: false, url, fetchedAt, error: 'Too many redirects.', errorKind: 'NETWORK' }
+      }
+
+      let next: URL
+      try {
+        next = new URL(location, current)
+      } catch {
+        return { ok: false, url, fetchedAt, error: 'Malformed redirect target.', errorKind: 'NETWORK' }
+      }
+      if (next.protocol !== 'https:' && next.protocol !== 'http:') {
+        return { ok: false, url, fetchedAt, error: 'Redirect to an unsupported protocol.', errorKind: 'NETWORK' }
+      }
+      current = next
+    }
+
+    if (!res) {
+      return { ok: false, url, fetchedAt, error: 'Could not reach the page.', errorKind: 'NETWORK' }
+    }
 
     if (!res.ok) {
       return { ok: false, url, fetchedAt, status: res.status, error: `Server returned ${res.status}.`, errorKind: 'HTTP_ERROR' }
@@ -195,7 +271,7 @@ export async function fetchPage(url: string): Promise<FetchOutcome> {
     return {
       ok: true,
       url,
-      finalUrl: res.url || url,
+      finalUrl: current.toString(),
       status: res.status,
       html,
       contentHash: createHash('sha256').update(html).digest('hex'),
