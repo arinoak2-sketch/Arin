@@ -42,25 +42,43 @@ test('a student can sign in, build a profile, and reach a real match', async () 
 
   await page.getByLabel('Email address').fill(EMAIL)
   await page.getByRole('button', { name: 'Continue' }).click()
-  await page.waitForURL('**/dashboard')
 
-  // A brand-new student sees a real next action, not a blank screen.
+  // ── Onboarding ────────────────────────────────────────────────────────────
+  // A brand-new student is taken through setup, not dropped on an empty app.
+  await page.waitForURL('**/onboarding**')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText('First, the basics')
+  await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '1')
+
+  await page.getByLabel('Date of birth').fill('2009-06-15')
+  await page.getByLabel('Country', { exact: true }).fill('GB')
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  await page.waitForURL('**/onboarding?step=interests')
+  await page.getByLabel('Subjects and interests').fill('molecular biology')
+  await page.getByRole('button', { name: 'Continue' }).click()
+
+  // Every step is skippable, and skipping does not lose what came before.
+  await page.waitForURL('**/onboarding?step=practicalities')
+  await page.getByRole('button', { name: 'Skip this step' }).click()
+
+  await page.waitForURL('**/onboarding?step=direction')
+  await page.getByLabel('Directions you are curious about').fill('medicine')
+  await page.getByRole('button', { name: 'Finish' }).click()
+
+  // It ends on the dashboard with real state, not a congratulations screen.
+  await page.waitForURL('**/dashboard')
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening)/)
   await expect(page.getByText('No applications started yet')).toBeVisible()
 
-  // ── Profile ───────────────────────────────────────────────────────────────
+  // What was entered actually landed.
   await page.goto('/profile')
-  await page.getByLabel('Date of birth').fill('2009-06-15') // 16 at the time of writing
-  await page.getByLabel('Country', { exact: true }).fill('GB')
-  await page.getByLabel('City').fill('Leeds')
-  await page.getByLabel('Interests and subjects').fill('molecular biology')
-  await page.getByLabel('Directions you are curious about').fill('medicine')
-  await page.getByRole('button', { name: 'Save profile' }).click()
-  await expect(page.getByText('Saved. Your matches will update straight away.')).toBeVisible()
-
-  // Completeness reflects what was just entered.
-  await page.reload()
   await expect(page.getByRole('meter', { name: 'Profile completeness' })).toBeVisible()
+  await expect(page.getByLabel('Date of birth')).toHaveValue('2009-06-15')
+  await expect(page.getByLabel('Interests and subjects')).toHaveValue(/molecular biology/i)
+
+  // And a student who has been through it is not sent back.
+  await page.goto('/dashboard')
+  await expect(page).toHaveURL(/\/dashboard$/)
 })
 
 test('discovery scores the eligible fixture and gates the ineligible one', async () => {

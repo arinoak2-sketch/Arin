@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { redirect } from 'next/navigation'
 import { requireUser } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
 import { searchCapability } from '@/lib/config'
@@ -33,6 +34,14 @@ export const dynamic = 'force-dynamic'
 export default async function DashboardPage() {
   const user = await requireUser()
   const now = new Date()
+
+  // A student who has never been through onboarding goes there first. The row
+  // is created by the first submit OR by skipping, so this can never trap them.
+  const hasProfileRow = await prisma.studentProfile.findUnique({
+    where: { userId: user.id },
+    select: { id: true },
+  })
+  if (!hasProfileRow) redirect('/onboarding')
 
   const [profileRecord, profile, applications, savedIds] = await Promise.all([
     prisma.studentProfile.findUnique({ where: { userId: user.id } }),
