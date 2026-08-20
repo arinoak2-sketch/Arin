@@ -129,8 +129,16 @@ export async function requestParentalConsent(
 
 export interface TokenLookup {
   status: ConsentStatus
+  /**
+   * Null once the request is settled or expired.
+   *
+   * The link lives in an inbox indefinitely and may be forwarded on. A parent
+   * who has already answered does not need the child named again to understand
+   * that, so continuing to identify a minor to anyone holding an old link buys
+   * nothing and costs exactly the thing this flow exists to protect.
+   */
   studentName: string | null
-  studentEmail: string
+  studentEmail: string | null
 }
 
 /**
@@ -161,10 +169,13 @@ export async function lookupConsentToken(token: string, now: Date = new Date()):
   const b = Buffer.from(tokenHash)
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null
 
+  const status = consentStatus(record, now)
+  const answerStillNeeded = status === 'PENDING'
+
   return {
-    status: consentStatus(record, now),
-    studentName: record.user.name,
-    studentEmail: record.user.email,
+    status,
+    studentName: answerStillNeeded ? record.user.name : null,
+    studentEmail: answerStillNeeded ? record.user.email : null,
   }
 }
 
@@ -198,9 +209,12 @@ export async function settleConsent(
     return 'DECLINED'
   }
 
+  // The address is cleared on grant as well as on decline. It existed to
+  // deliver exactly one message; what evidences the consent afterwards is
+  // grantedAt and grantedIpHash, not a parent's contact details kept on file.
   await prisma.parentalConsent.update({
     where: { tokenHash },
-    data: { grantedAt: now, grantedIpHash: hashIp(ip) },
+    data: { grantedAt: now, grantedIpHash: hashIp(ip), parentEmail: '' },
   })
   return 'GRANTED'
 }

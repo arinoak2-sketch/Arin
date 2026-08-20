@@ -536,7 +536,9 @@ model ParentalConsent {
   userId String @unique
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// The address the request was sent to. Deleted once consent is settled.
+  /// The address the request was sent to. Cleared once the request is settled,
+  /// either way: it exists to deliver one message, and what evidences the
+  /// consent afterwards is grantedAt and grantedIpHash.
   parentEmail String
   /// SHA-256 of the approval token. The token itself is never stored, so a
   /// database read cannot be turned into the ability to grant consent.

@@ -22,7 +22,9 @@ export default async function ConsentPage({ params }: { params: Promise<{ token:
   const lookup = await lookupConsentToken(token)
   if (!lookup) notFound()
 
-  const who = lookup.studentName?.trim() || lookup.studentEmail
+  // Null once settled or expired — the lookup deliberately stops identifying
+  // the student to anyone holding a spent link.
+  const who = lookup.studentName?.trim() || lookup.studentEmail || 'The student'
 
   return (
     <main id="main" style={{ maxWidth: 560, margin: '0 auto', padding: '48px 22px 80px' }}>
@@ -78,18 +80,25 @@ export default async function ConsentPage({ params }: { params: Promise<{ token:
             </p>
           </Stack>
         ) : (
-          <Settled status={lookup.status} who={who} />
+          <Settled status={lookup.status} />
         )}
       </Stack>
     </main>
   )
 }
 
-function Settled({ status, who }: { status: string; who: string }) {
+/**
+ * Shown when the link has already been used or has run out.
+ *
+ * Names nobody. Once the answer is in, repeating a minor's name to whoever
+ * opens the link adds nothing for the parent and keeps identifying a child to
+ * anyone the message was forwarded to.
+ */
+function Settled({ status }: { status: string }) {
   const copy: Record<string, { title: string; body: string }> = {
     GRANTED: {
       title: 'Already answered — you said yes',
-      body: `${who} can use Lumen. If you change your mind, contact us and we will withdraw it and delete their information.`,
+      body: 'They can use Lumen. If you change your mind, contact us and we will withdraw it and delete their information.',
     },
     REVOKED: {
       title: 'Already answered — you said no',
@@ -97,7 +106,7 @@ function Settled({ status, who }: { status: string; who: string }) {
     },
     EXPIRED: {
       title: 'This link has expired',
-      body: `For safety these links stop working after a couple of weeks. If ${who} still wants to use Lumen, they can send a new request.`,
+      body: 'For safety these links stop working after a couple of weeks. If they still want to use Lumen, they can send a new request.',
     },
   }
   const text = copy[status] ?? copy.EXPIRED!
