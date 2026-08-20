@@ -28,7 +28,7 @@ npx prisma db push && npm run dev
 
 | | |
 |---|---|
-| **Tests** | 235 unit, 37 end-to-end (journey · accessibility · no-JavaScript · parental consent) |
+| **Tests** | 256 unit, 37 end-to-end (journey · accessibility · no-JavaScript · parental consent), plus opt-in live probes |
 | **Stack** | Next.js 15 · TypeScript · Prisma · SQLite locally, Postgres in production |
 | **Auth** | Google sign-in via Auth.js, with a dev-only fallback that cannot exist in production |
 

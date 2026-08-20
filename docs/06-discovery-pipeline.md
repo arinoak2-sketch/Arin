@@ -111,3 +111,29 @@ HTML written to test it, and this proves it behaves on HTML written by someone e
 
 Note that a refusal is a valid result. A page Lumen cannot read is declined rather than stored
 half-understood.
+
+### The whole pipeline, with only the search call substituted
+
+```bash
+PROBE_LIVE=1 npx vitest run e2e/probe/full-discovery.test.ts
+```
+
+`braveProvider.search` is stubbed — and only that. Everything downstream is real: query planning,
+the monthly budget reservation, hit ranking, the SSRF-guarded fetcher making genuine HTTP requests
+to a live third-party host, extraction, dedupe against the corpus, persistence, provenance, and the
+verification-state decision. The stub returns URLs that are actually reachable, so the fetch that
+follows is a real request rather than a fixture.
+
+Confirmed by running it: three queries planned from one phrase, two pages fetched and stored with
+`discoveredVia: BRAVE` and state `UNVERIFIED`, zero fabricated deadlines, eligibility or cost — and
+a second run over the same URLs created nothing and merged both, so dedupe holds against the real
+corpus rather than against a mock.
+
+That leaves exactly one thing a Brave key unlocks that is not covered: parsing Brave's own JSON
+response body. `brave.test.ts` covers the adapter around it — but be clear about what that proves.
+The response *shape* is Brave's, so asserting it only shows the parser matches what this codebase
+believes that shape to be; the belief is confirmed the first time a real key is used. What does not
+depend on that guess is the failure handling, and that is what those tests are really for: 401 and
+403 become `NOT_CONFIGURED`, 422 `QUOTA_EXHAUSTED`, 429 `RATE_LIMITED` with `retry-after` honoured,
+everything else `PROVIDER_ERROR`, and a timeout says it timed out. A failed search must never render
+as an empty list, which would read to a student as "there are no opportunities for you".
