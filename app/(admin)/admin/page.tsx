@@ -11,6 +11,8 @@ import { formatDate, VerificationBadge } from '@/components/opportunity/indicato
 import { ReviewActions } from '@/components/admin/review-actions'
 import { RetentionPanel } from '@/components/admin/retention-panel'
 import { SweepButton } from '@/components/admin/sweep-button'
+import { AddByUrl } from '@/components/admin/add-by-url'
+import { ConsentPanel } from '@/components/admin/consent-panel'
 
 export const metadata = { title: 'Admin' }
 export const dynamic = 'force-dynamic'
@@ -54,6 +56,13 @@ export default async function AdminPage() {
     where: { verificationState: { notIn: ['ARCHIVED', 'EXPIRED'] }, deadlines: { none: {} } },
   })
 
+  const pendingConsent = await prisma.parentalConsent.findMany({
+    where: { grantedAt: null, revokedAt: null, expiresAt: { gt: new Date() }, deliveryError: { not: null } },
+    select: { userId: true, parentEmail: true, requestedAt: true, expiresAt: true, deliveryError: true },
+    orderBy: { requestedAt: 'asc' },
+    take: 50,
+  })
+
   return (
     <Stack gap={30}>
       <Stack gap={6}>
@@ -88,10 +97,22 @@ export default async function AdminPage() {
         />
       </div>
 
+      <AddByUrl />
+
+      <ConsentPanel
+        pending={pendingConsent.map((c) => ({
+          userId: c.userId,
+          parentEmail: c.parentEmail,
+          requestedAt: formatDate(c.requestedAt),
+          expiresAt: formatDate(c.expiresAt),
+          deliveryError: c.deliveryError,
+        }))}
+      />
+
       {oldest?.lastVerifiedAt ? (
         <p style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>
           Oldest verified listing:{' '}
-          <Link href={`/opportunity/${oldest.slug}`} style={{ color: 'var(--accent)' }}>
+          <Link href={`/opportunity/${oldest.slug}`} style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
             {oldest.title}
           </Link>{' '}
           — last checked {formatDate(oldest.lastVerifiedAt)}.
@@ -213,7 +234,12 @@ export default async function AdminPage() {
                           href={source.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          style={{ fontSize: 13, color: 'var(--accent)', wordBreak: 'break-all' }}
+                          style={{
+                            fontSize: 13,
+                            color: 'var(--accent)',
+                            textDecoration: 'underline',
+                            wordBreak: 'break-all',
+                          }}
                         >
                           {source.isOfficial ? '★ ' : ''}
                           {source.url}

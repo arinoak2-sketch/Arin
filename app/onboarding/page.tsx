@@ -2,12 +2,16 @@ import { requireUser } from '@/lib/auth/session'
 import { prisma } from '@/lib/db/client'
 import { decodeStringArray } from '@/lib/db/codec'
 import {
+  CONSENT_STEP,
   isOnboardingError,
   isOnboardingStep,
   ONBOARDING_ERRORS,
   ONBOARDING_STEPS,
   type OnboardingStep,
 } from '@/lib/onboarding/steps'
+import { consentFor } from '@/lib/consent/store'
+import { emailCapability } from '@/lib/config'
+import { ConsentStep } from '@/components/onboarding/consent-step'
 import { Wordmark } from '@/components/layout/wordmark'
 import { Eyebrow, Row, Stack } from '@/components/ui/primitives'
 import { BasicsStep, DirectionStep, InterestsStep, PracticalitiesStep } from '@/components/onboarding/steps'
@@ -29,12 +33,13 @@ export const dynamic = 'force-dynamic'
 export default async function OnboardingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ step?: string; error?: string }>
+  searchParams: Promise<{ step?: string; error?: string; state?: string; problem?: string }>
 }) {
   const user = await requireUser()
   const params = await searchParams
 
   const requested = params.step ?? ''
+  const onConsentStep = requested === CONSENT_STEP
   const step: OnboardingStep = isOnboardingStep(requested) ? requested : 'basics'
 
   // Validation failures arrive as a code in the URL, never as raw text — so a
@@ -48,6 +53,28 @@ export default async function OnboardingPage({
   })
 
   const index = ONBOARDING_STEPS.indexOf(step)
+
+  if (onConsentStep) {
+    const consent = await consentFor(user.id)
+    const rawState = params.state ?? ''
+    const state =
+      rawState === 'sent' || rawState === 'undelivered' || rawState === 'resent' ? rawState : null
+
+    return (
+      <main id="main" style={{ maxWidth: 560, margin: '0 auto', padding: '32px 22px 80px' }}>
+        <Stack gap={30}>
+          <Wordmark href="/dashboard" size={18} />
+          <ConsentStep
+            parentEmail={consent?.parentEmail ?? ''}
+            state={state}
+            /* Length-capped and rendered as text, never as markup. */
+            problem={params.problem ? params.problem.slice(0, 200) : null}
+            canSendEmail={emailCapability().available}
+          />
+        </Stack>
+      </main>
+    )
+  }
 
   return (
     <main id="main" style={{ maxWidth: 560, margin: '0 auto', padding: '32px 22px 80px' }}>

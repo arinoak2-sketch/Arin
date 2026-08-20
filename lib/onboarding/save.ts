@@ -3,7 +3,9 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db/client'
 import { encodeJson } from '@/lib/db/codec'
 import { EDUCATION_LEVELS, FORMAT_PREFERENCES } from '@/lib/db/enums'
-import { errorHref, nextHref, type OnboardingStep } from './steps'
+import { assessAge } from '@/lib/consent/rules'
+import { consentFor } from '@/lib/consent/store'
+import { consentHref, errorHref, nextHref, type OnboardingStep } from './steps'
 
 /**
  * Onboarding persistence.
@@ -19,15 +21,6 @@ import { errorHref, nextHref, type OnboardingStep } from './steps'
  * handler returning 303 is ordinary HTTP that has worked since 1997 and cannot
  * develop a hydration dependency.
  */
-
-const MIN_AGE = 13
-const EU_MIN_AGE = 16
-
-/** Members whose GDPR Art. 8 digital-consent age is above 13. */
-const EU_COUNTRIES = new Set([
-  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU',
-  'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE',
-])
 
 const blank = (v: unknown) => (v === '' || v === null || v === undefined ? undefined : v)
 
@@ -51,11 +44,9 @@ export async function saveBasics(userId: string, form: FormData): Promise<string
   const country = countryCode ? countryCode.toUpperCase() : null
 
   if (dob && Number.isNaN(dob.getTime())) return errorHref('basics', 'BAD_DATE')
-  if (dob) {
-    const age = ageFrom(dob)
-    if (age < MIN_AGE) return errorHref('basics', 'TOO_YOUNG')
-    if (country && EU_COUNTRIES.has(country) && age < EU_MIN_AGE) return errorHref('basics', 'EU_AGE')
-  }
+
+  const verdict = assessAge(dob, country)
+  if (verdict.kind === 'TOO_YOUNG') return errorHref('basics', 'TOO_YOUNG')
 
   const data = {
     dateOfBirth: dob,
@@ -68,6 +59,21 @@ export async function saveBasics(userId: string, form: FormData): Promise<string
     create: { userId, ...data },
     update: data,
   })
+
+  /*
+   * An EU resident under 16 branches here rather than being refused.
+   *
+   * The basics are saved first on purpose: the answer that triggered the
+   * branch should not be thrown away, or the student has to type their date of
+   * birth again to find out they still cannot get in. The account exists and
+   * is inert — see lib/consent — until a parent approves.
+   */
+  if (verdict.kind === 'NEEDS_PARENTAL_CONSENT') {
+    const existing = await consentFor(userId)
+    if (existing?.status === 'REVOKED') return errorHref('basics', 'CONSENT_DECLINED')
+    if (existing?.status === 'GRANTED') return nextHref('basics')
+    return consentHref()
+  }
 
   return nextHref('basics')
 }
@@ -153,11 +159,4 @@ function parseDate(raw: string | undefined): Date | null {
   if (!raw) return null
   const d = new Date(raw)
   return Number.isNaN(d.getTime()) ? null : d
-}
-
-function ageFrom(dateOfBirth: Date, now = new Date()): number {
-  let age = now.getUTCFullYear() - dateOfBirth.getUTCFullYear()
-  const m = now.getUTCMonth() - dateOfBirth.getUTCMonth()
-  if (m < 0 || (m === 0 && now.getUTCDate() < dateOfBirth.getUTCDate())) age--
-  return age
 }

@@ -4,6 +4,7 @@ import { canonicaliseUrl, parseRobots, robotsAllows } from './fetcher'
 import { describeFilters, parseNaturalQuery, planQueries } from './queryPlanner'
 import { isOfficialDomain, rankHits, sourceTier, type SearchHit } from './provider'
 import { makeProvenance, mergeProvenance, outranks, requiresHumanConfirmation } from './provenance'
+import { ingestUrl } from './pipeline'
 
 describe('duplicate detection', () => {
   const base = { canonicalUrl: 'https://a.edu/p', title: 'Summer Research Programme', organizationDomain: 'a.edu' }
@@ -252,5 +253,38 @@ describe('provenance', () => {
     expect(makeProvenance('STRUCTURED_MARKUP', 'https://a.edu').confidence).toBe('HIGH')
     expect(makeProvenance('AI_EXTRACTED', 'https://a.edu').confidence).toBe('MEDIUM')
     expect(makeProvenance('SEARCH_RESULT', 'https://a.edu').confidence).toBe('LOW')
+  })
+})
+
+describe('ingestUrl input handling', () => {
+  // Everything here is refused before any network call, so these run offline.
+  // The happy path needs a real page and lives in e2e/probe, opt-in.
+
+  it('refuses an empty address with something a person can act on', async () => {
+    const r = await ingestUrl('   ')
+    expect(r.status).toBe('rejected')
+    expect(r.reason).toMatch(/enter the address/i)
+  })
+
+  it('refuses text that is not a URL', async () => {
+    const r = await ingestUrl('summer research programme')
+    expect(r.status).toBe('rejected')
+    expect(r.reason).toMatch(/valid web address/i)
+  })
+
+  it('refuses non-web schemes', async () => {
+    // file: and data: would read the server's own disk or smuggle content past
+    // the fetcher; neither is a page an organiser published.
+    for (const url of ['file:///etc/passwd', 'data:text/html,<h1>x</h1>', 'ftp://example.org/x']) {
+      const r = await ingestUrl(url)
+      expect(r.status, url).toBe('rejected')
+      expect(r.reason, url).toMatch(/only http and https/i)
+    }
+  })
+
+  it('does not leak internals when a URL is malformed', async () => {
+    const r = await ingestUrl('http://[not-an-address')
+    expect(r.status).toBe('rejected')
+    expect(r.reason).not.toMatch(/error|exception|stack|invalid url/i)
   })
 })

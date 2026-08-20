@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { requireUser } from '@/lib/auth/session'
+import { requireUsableAccount } from '@/lib/consent/gate'
 import { prisma } from '@/lib/db/client'
 import { triage, countDueWithin } from '@/lib/intelligence/deadlines'
 import { SideRail, BottomBar } from '@/components/layout/nav'
@@ -11,6 +12,10 @@ import { Wordmark } from '@/components/layout/wordmark'
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const user = await requireUser()
+
+  // An account awaiting parental consent gets no further than this. Checked in
+  // the layout so it covers every signed-in page, including ones added later.
+  await requireUsableAccount(user.id)
 
   // Badge count: applications with an actionable deadline inside a week.
   const applications = await prisma.application.findMany({

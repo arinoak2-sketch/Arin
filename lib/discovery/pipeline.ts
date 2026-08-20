@@ -144,11 +144,11 @@ export async function runDiscovery(input: DiscoveryInput): Promise<DiscoveryOutc
   // ── 3–7. Fetch, extract, normalise, dedupe, persist ──
   for (const hit of ranked.slice(0, MAX_PAGES_PER_RUN)) {
     try {
-      const result = await ingestHit(hit, now)
-      if (result === 'created') outcome.created++
-      else if (result === 'merged') outcome.merged++
-      else if (result === 'review') outcome.queuedForReview++
-      else outcome.skipped.push({ url: hit.url, reason: result })
+      const result = await ingestHit(hit, now, 'BRAVE')
+      if (result.status === 'created') outcome.created++
+      else if (result.status === 'merged') outcome.merged++
+      else if (result.status === 'review') outcome.queuedForReview++
+      else outcome.skipped.push({ url: hit.url, reason: result.reason ?? 'Could not be processed.' })
     } catch {
       outcome.skipped.push({ url: hit.url, reason: 'Could not be processed.' })
     }
@@ -159,9 +159,26 @@ export async function runDiscovery(input: DiscoveryInput): Promise<DiscoveryOutc
   return outcome
 }
 
-type IngestResult = 'created' | 'merged' | 'review' | string
+/** Where a source came from. Recorded verbatim; never assumed. */
+export type IngestOrigin = 'BRAVE' | 'ADMIN'
 
-async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
+export interface IngestResult {
+  status: 'created' | 'merged' | 'review' | 'rejected'
+  /** Present when a record was created, so a caller can link straight to it. */
+  slug?: string
+  title?: string
+  /** Present when status is 'rejected' — plain language, safe to show. */
+  reason?: string
+}
+
+const rejected = (reason: string): IngestResult => ({ status: 'rejected', reason })
+
+async function ingestHit(
+  hit: SearchHit,
+  now: Date,
+  origin: IngestOrigin,
+  actorUserId?: string,
+): Promise<IngestResult> {
   const canonical = canonicaliseUrl(hit.url)
 
   // Already known? Record the source sighting and move on.
@@ -174,19 +191,23 @@ async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
       where: { url: canonical },
       data: { fetchedAt: now },
     })
-    return 'merged'
+    const known = await prisma.opportunity.findUnique({
+      where: { id: existingSource.opportunityId },
+      select: { slug: true, title: true },
+    })
+    return { status: 'merged', slug: known?.slug, title: known?.title }
   }
 
   // ── 3. Fetch ──
   const fetched = await fetchPage(hit.url)
-  if (!fetched.ok || !fetched.html) return fetched.error ?? 'Could not be fetched.'
+  if (!fetched.ok || !fetched.html) return rejected(fetched.error ?? 'Could not be fetched.')
 
   // ── 4. Extract ──
   const extraction = extractFromHtml(fetched.html, fetched.finalUrl ?? hit.url, fetched.fetchedAt)
   const aiReport = await fillGapsWithAi(extraction, fetched.finalUrl ?? hit.url, fetched.fetchedAt)
 
   const title = extraction.title?.value ?? hit.title
-  if (!title || title.trim().length < 4) return 'No usable title on the page.'
+  if (!title || title.trim().length < 4) return rejected('No usable title on the page.')
 
   // ── 5. Normalise ──
   const domain = domainOf(fetched.finalUrl ?? hit.url)
@@ -241,7 +262,7 @@ async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
         url: canonical,
         domain,
         isOfficial: official,
-        discoveredVia: 'BRAVE',
+        discoveredVia: origin,
         fetchedAt: fetched.fetchedAt,
         httpStatus: fetched.status ?? null,
         contentHash: fetched.contentHash ?? null,
@@ -253,13 +274,18 @@ async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
     await prisma.verificationEvent.create({
       data: {
         opportunityId: bestId,
-        actor: 'SYSTEM',
+        actor: origin === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+        actorUserId: actorUserId ?? null,
         action: 'FETCH_CONFIRMED',
         fieldsTouched: encodeJson(['sources']),
         note: `Additional source found at ${domain}.`,
       },
     })
-    return 'merged'
+    const merged = await prisma.opportunity.findUnique({
+      where: { id: bestId },
+      select: { slug: true, title: true },
+    })
+    return { status: 'merged', slug: merged?.slug, title: merged?.title }
   }
 
   // ── 7. Persist with provenance ──
@@ -300,7 +326,7 @@ async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
           url: canonical,
           domain,
           isOfficial: official,
-          discoveredVia: 'BRAVE',
+          discoveredVia: origin,
           fetchedAt: fetched.fetchedAt,
           httpStatus: fetched.status ?? null,
           contentHash: fetched.contentHash ?? null,
@@ -336,18 +362,81 @@ async function ingestHit(hit: SearchHit, now: Date): Promise<IngestResult> {
       },
       verifications: {
         create: {
-          actor: 'SYSTEM',
+          // An admin supplying a URL is a person taking an action, and the
+          // audit trail says so. It does not make the *content* admin-entered:
+          // every field keeps the provenance the extractor gave it.
+          actor: origin === 'ADMIN' ? 'ADMIN' : 'SYSTEM',
+          actorUserId: actorUserId ?? null,
           action: 'DISCOVERED',
           fieldsTouched: encodeJson(Object.keys(provenance)),
-          note: aiReport.attempted
-            ? `Discovered via search. AI filled ${aiReport.filled.length} field(s); ${aiReport.rejected.length} rejected as not present in the page text.`
-            : 'Discovered via search. Extracted from page markup and text only.',
+          note: `${origin === 'ADMIN' ? 'Added by URL.' : 'Discovered via search.'} ${
+            aiReport.attempted
+              ? `AI filled ${aiReport.filled.length} field(s); ${aiReport.rejected.length} rejected as not present in the page text.`
+              : 'Extracted from page markup and text only.'
+          }`,
         },
       },
     },
   })
 
-  return created && needsReview ? 'review' : 'created'
+  return {
+    status: needsReview ? 'review' : 'created',
+    slug: created.slug,
+    title: created.title,
+  }
+}
+
+/**
+ * Adds one opportunity from a URL you supply, without going through search.
+ *
+ * Why this exists: until a Brave key is configured there is no way to put a
+ * single real opportunity into the corpus, so the whole product can only be
+ * seen against test fixtures. That made live search a prerequisite for
+ * evaluating anything, which it should not be.
+ *
+ * This is not a shortcut around the trust rules — it is the same pipeline.
+ * The page is fetched through the same SSRF-guarded fetcher, extracted by the
+ * same extractor, deduped against the same corpus, and stamped with the same
+ * per-field provenance. Supplying the URL asserts nothing about the content:
+ * an admin choosing which page to read is not an admin vouching for what it
+ * says, so nothing here can reach VERIFIED without a separate human review.
+ * The only difference from a search result is that the source records ADMIN
+ * rather than BRAVE, because that is what actually happened.
+ */
+export async function ingestUrl(
+  rawUrl: string,
+  options: { actorUserId?: string; now?: Date } = {},
+): Promise<IngestResult> {
+  const now = options.now ?? new Date()
+  const trimmed = rawUrl.trim()
+  if (trimmed.length === 0) return rejected('Enter the address of the opportunity page.')
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return rejected('That is not a valid web address. It should start with https://')
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    return rejected('Only http and https addresses can be read.')
+  }
+
+  // A SearchHit is just the shape the pipeline takes. Title and snippet are
+  // left empty on purpose: with no search provider there is no third-party
+  // description, and inventing one would put unsourced text into the record.
+  // The extractor reads the title from the page itself, or the page is refused.
+  const hit: SearchHit = {
+    url: parsed.toString(),
+    title: '',
+    snippet: '',
+    domain: domainOf(parsed.toString()),
+  }
+
+  try {
+    return await ingestHit(hit, now, 'ADMIN', options.actorUserId)
+  } catch {
+    return rejected('That page could not be processed. Check the address and try again.')
+  }
 }
 
 function buildProvenanceMap(e: ExtractionResult): ProvenanceMap {

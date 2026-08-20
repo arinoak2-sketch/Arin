@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
-import { clearUser, seedFixtures } from './fixtures'
+import { clearUser, seedFixtures, setRole } from './fixtures'
 
 /**
  * Machine-checked accessibility, against WCAG 2.1 A and AA.
@@ -68,6 +68,32 @@ const PAGES: Array<{ name: string; path: string }> = [
   { name: 'profile', path: '/profile' },
   { name: 'dashboard', path: '/dashboard' },
 ]
+
+/**
+ * The admin queue is audited too, and it is the page most likely to drift:
+ * it is built for one person, so nobody complains when a control there is
+ * unlabelled. The role is granted for this check and taken back afterwards so
+ * no other test sees an admin.
+ */
+test('the review queue is accessible', async () => {
+  await setRole(EMAIL, 'ADMIN')
+  try {
+    await page.goto('/admin')
+    await expect(page.getByRole('heading', { name: 'Review queue' })).toBeVisible()
+    // The URL field must be reachable by its label, not just by placeholder.
+    await expect(page.getByLabel('Address of the opportunity page')).toBeVisible()
+    const results = await audit(page)
+    if (results.violations.length > 0) {
+      console.log(
+        '\nadmin violations:\n' +
+          results.violations.map((v) => `  [${v.impact}] ${v.id}: ${v.help}`).join('\n'),
+      )
+    }
+    expect(results.violations).toEqual([])
+  } finally {
+    await setRole(EMAIL, 'STUDENT')
+  }
+})
 
 async function audit(target: Page) {
   return new AxeBuilder({ page: target }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze()

@@ -30,17 +30,18 @@ model User {
   lastActiveAt  DateTime  @default(now())
   deletedAt     DateTime?
 
-  accounts      Account[]
-  sessions      Session[]
-  profile       StudentProfile?
-  preference    UserPreference?
-  subscription  Subscription?
-  saved         SavedOpportunity[]
-  applications  Application[]
-  matches       MatchResult[]
-  notifications Notification[]
-  queries       DiscoveryQuery[]
-  verifications VerificationEvent[]
+  accounts        Account[]
+  sessions        Session[]
+  profile         StudentProfile?
+  parentalConsent ParentalConsent?
+  preference      UserPreference?
+  subscription    Subscription?
+  saved           SavedOpportunity[]
+  applications    Application[]
+  matches         MatchResult[]
+  notifications   Notification[]
+  queries         DiscoveryQuery[]
+  verifications   VerificationEvent[]
 
   @@index([deletedAt])
 }
@@ -518,4 +519,43 @@ model Subscription {
   provider         String    @default("NONE")
   startedAt        DateTime  @default(now())
   currentPeriodEnd DateTime?
+}
+
+/**
+ * Parental consent for EU residents below the digital-consent age.
+ * GDPR Art. 8 requires consent from the holder of parental responsibility
+ * before processing a child's data, and "reasonable efforts" to verify it.
+ * Lumen applies a uniform 16 across the EU rather than encoding each member
+ * state's own threshold (13-16): over-blocking errs in the safe direction and
+ * keeps 27 legal determinations out of the source. See docs/00-decisions.md.
+ * The account exists but is inert until grantedAt is set. Nothing is matched,
+ * no opportunity data is gathered, and the student sees a waiting state.
+ */
+model ParentalConsent {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// The address the request was sent to. Deleted once consent is settled.
+  parentEmail String
+  /// SHA-256 of the approval token. The token itself is never stored, so a
+  /// database read cannot be turned into the ability to grant consent.
+  tokenHash   String   @unique
+  requestedAt DateTime @default(now())
+  /// Requests go stale on purpose; an indefinitely valid approval link is a
+  /// standing credential sitting in someone's inbox.
+  expiresAt   DateTime
+
+  grantedAt     DateTime?
+  /// Recorded so a granted consent can be shown to have been a deliberate act.
+  grantedIpHash String?
+  revokedAt     DateTime?
+
+  /// False when no mail provider was configured at request time, so the admin
+  /// queue can show what still needs delivering by hand.
+  deliveryAttempted Boolean @default(false)
+  deliveryError     String?
+
+  @@index([expiresAt])
+  @@index([grantedAt])
 }

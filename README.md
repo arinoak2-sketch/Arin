@@ -15,9 +15,10 @@ helps them get the application finished before the deadline.
 explained match → opportunity detail → save → application with a generated checklist → deadline
 intelligence → calendar → comparison, plus an admin review queue.
 
-**The corpus is empty until you add a Brave Search key.** That is the honest state, not a bug:
-Lumen has no bundled directory, and it says so on screen rather than showing invented results.
-See [Required configuration](#required-configuration).
+**The corpus starts empty**, because Lumen bundles no directory and will not invent one. Live
+discovery needs a Brave key — but you no longer need one to see the product work: `/admin` takes a
+URL and runs it through the same pipeline, so you can add real opportunities today. See
+[Required configuration](#required-configuration).
 
 ```bash
 npm install
@@ -27,7 +28,7 @@ npx prisma db push && npm run dev
 
 | | |
 |---|---|
-| **Tests** | 180 unit, 28 end-to-end (journey · accessibility · no-JavaScript) |
+| **Tests** | 210 unit, 37 end-to-end (journey · accessibility · no-JavaScript · parental consent) |
 | **Stack** | Next.js 15 · TypeScript · Prisma · SQLite locally, Postgres in production |
 | **Auth** | Google sign-in via Auth.js, with a dev-only fallback that cannot exist in production |
 
@@ -44,7 +45,8 @@ npx prisma db push && npm run dev
 | Applications | Checklist generated from stated requirements, longest lead time first |
 | Calendar | Typed events, iCal export |
 | Profile | Completeness tied to matching impact; strength framed as exploration |
-| Admin | Review queue, data quality, retention, expiry sweep |
+| Admin | Review queue, add-by-URL, data quality, retention, undelivered consent requests |
+| Parental consent | EU under-16s ask a parent by email; the account is inert until they answer |
 
 ## What is deliberately not built
 
@@ -82,6 +84,8 @@ Step-by-step in [`docs/09-running-lumen.md`](docs/09-running-lumen.md).
 | `DATABASE_URL` | Postgres in production | SQLite locally |
 | `ANTHROPIC_API_KEY` | Gap-fill extraction, advisor | Structured-markup extraction only; advisor off |
 | `CRON_SECRET` | Scheduled expiry + retention purge | Maintenance route refuses every request |
+| `APP_ORIGIN` | Links sent by email | Localhost in dev; production refuses to start |
+| `RESEND_API_KEY` / `CONSENT_EMAIL_FROM` | Parental consent emails | EU under-16 accounts stay locked, visibly |
 
 ## Documentation
 
@@ -101,9 +105,13 @@ Step-by-step in [`docs/09-running-lumen.md`](docs/09-running-lumen.md).
 
 ## Still open
 
-- **The EU age gate is a blunt block, not a consent flow.** EU residents under 16 cannot sign up.
-  GDPR Art. 8 needs verifiable parental consent, and what counts as verifiable is a decision for
-  the operator. This is the one item with real legal exposure.
+- **The consent email path is unexercised.** It was built where outbound HTTPS to arbitrary hosts is
+  blocked, so the provider integration has never made a real call. Failures are stored and shown in
+  the admin queue rather than swallowed, so a misconfiguration surfaces on first use — but the first
+  real send is still the first real test.
+- **A uniform 16 over-blocks some EU students.** Several member states set 13. This is deliberate
+  (reasoning in [`docs/00-decisions.md`](docs/00-decisions.md)) and is one constant to change once
+  you have advice for a given market.
 - **Nothing schedules the maintenance route** on a non-Vercel deployment. `vercel.json` wires it;
   elsewhere it needs a cron entry.
 - **Rate limits are database-backed counts**, so they are approximate across multiple instances.

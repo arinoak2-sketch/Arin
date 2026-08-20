@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { currentUser } from '@/lib/auth/session'
+import { accountIsUsable } from '@/lib/consent/gate'
 import { prisma } from '@/lib/db/client'
 import { DEADLINE_LABELS, type DeadlineKind } from '@/lib/db/enums'
 
@@ -13,6 +14,11 @@ import { DEADLINE_LABELS, type DeadlineKind } from '@/lib/db/enums'
 export async function GET() {
   const user = await currentUser()
   if (!user) return new NextResponse('Sign in to export your calendar.', { status: 401 })
+  if (!(await accountIsUsable(user.id))) {
+    return new NextResponse('This account is waiting for a parent or guardian to give permission.', {
+      status: 403,
+    })
+  }
 
   const [applications, saved] = await Promise.all([
     prisma.application.findMany({

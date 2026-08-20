@@ -62,3 +62,39 @@ the old date is never carried forward. When a re-crawl of the same official URL 
 a **new** `Opportunity` row is created with `cycleYear` set and `supersedesId` pointing at the old
 one. The 2026 record stays visible and honestly labelled "2026 cycle — closed"; the 2027 record is
 its own listing with its own verification history.
+
+## Filling the corpus without a search key
+
+Until `BRAVE_SEARCH_API_KEY` is set there is no live search, and there was no other way in — which
+made a paid credential a prerequisite for seeing the product work on a single real opportunity.
+That was the wrong dependency to have.
+
+`/admin` now takes a URL. It runs **the same pipeline**, not a shortcut around it:
+
+```
+URL → fetchPage (SSRF guard, robots.txt) → extractFromHtml → AI gap-fill → dedupe → persist
+```
+
+Supplying a URL asserts nothing about the content. An admin choosing which page to read is not an
+admin vouching for what it says, so a manually added record still cannot reach `VERIFIED` without a
+separate human review, and every field keeps the provenance the extractor gave it. The only
+difference from a search result is `discoveredVia: ADMIN`, and a verification event naming the admin
+who added it — because that is what actually happened.
+
+Two things were wrong before this and are fixed: `discoveredVia` was hardcoded to `BRAVE` on both
+the create and merge paths, so any non-search source would have been mislabelled; and `ingestHit`
+returned a bare string, so a caller could not link to what it had just stored.
+
+### Checking extraction against a page you choose
+
+```bash
+PROBE_URL="https://example.edu/summer-programme" npx vitest run e2e/probe
+```
+
+Skipped unless `PROBE_URL` is set. It prints every extracted field with its provenance beside it, so
+you can compare against the page in your browser and see whether Lumen read it or guessed. This is
+the one check a fixture cannot substitute for: the rest of the suite proves the extractor behaves on
+HTML written to test it, and this proves it behaves on HTML written by someone else.
+
+Note that a refusal is a valid result. A page Lumen cannot read is declined rather than stored
+half-understood.

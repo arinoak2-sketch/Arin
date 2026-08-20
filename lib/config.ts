@@ -55,6 +55,43 @@ export function aiCapability(): Capability {
       )
 }
 
+/**
+ * Outbound email. Needed only for the parental-consent request.
+ *
+ * Without it the consent flow still records the request and the admin queue
+ * shows which ones failed to send, but nothing is delivered: the approval
+ * token is hashed at rest and cannot be recovered, deliberately, so there is
+ * no way for an operator to pass a link on by hand — and therefore no way for
+ * one to approve an account on a parent's behalf. The account simply stays
+ * locked until email works and a parent answers.
+ */
+export function emailCapability(): Capability {
+  return read('RESEND_API_KEY') && read('CONSENT_EMAIL_FROM')
+    ? { available: true }
+    : unavailable(
+        'Consent emails cannot be sent on this deployment, so accounts needing parental permission stay locked until it is configured.',
+        'RESEND_API_KEY / CONSENT_EMAIL_FROM',
+        'https://resend.com/api-keys',
+      )
+}
+
+/**
+ * The origin used to build links that arrive in someone's inbox.
+ *
+ * Never derived from the incoming request: a request header is attacker-
+ * controlled, and a consent approval link built from one could be pointed at
+ * another host. Configuration only, and localhost in development.
+ */
+export function appOrigin(): string {
+  const configured = read('APP_ORIGIN')
+  if (configured) return configured.replace(/\/+$/, '')
+  if (isProduction) throw new Error('APP_ORIGIN must be set in production — consent links depend on it.')
+  return 'http://localhost:3000'
+}
+
+export const resendApiKey = () => read('RESEND_API_KEY')
+export const consentEmailFrom = () => read('CONSENT_EMAIL_FROM')
+
 export function googleAuthCapability(): Capability {
   return read('AUTH_GOOGLE_ID') && read('AUTH_GOOGLE_SECRET')
     ? { available: true }

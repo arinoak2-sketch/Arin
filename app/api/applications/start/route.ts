@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
 import { currentUser } from '@/lib/auth/session'
+import { accountIsUsable } from '@/lib/consent/gate'
 import { startApplicationFor } from '@/lib/applications/start'
 
 /**
@@ -22,6 +23,9 @@ const seeOther = (location: string) =>
 export async function POST(request: Request) {
   const user = await currentUser()
   if (!user) return seeOther('/signin')
+  // The page this posts from is already gated, but a POST does not have to come
+  // from a page. An account waiting on parental consent does nothing at all.
+  if (!(await accountIsUsable(user.id))) return seeOther('/onboarding?step=consent')
 
   const form = await request.formData()
   const opportunityId = String(form.get('opportunityId') ?? '')

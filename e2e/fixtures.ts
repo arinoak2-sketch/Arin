@@ -147,3 +147,32 @@ export async function clearUser(email: string) {
   }
   await client.$disconnect()
 }
+
+/** Temporarily promotes a test user so admin-only pages can be exercised. */
+export async function setRole(email: string, role: 'STUDENT' | 'ADMIN') {
+  const client = new PrismaClient()
+  await client.user.updateMany({ where: { email }, data: { role } })
+  await client.$disconnect()
+}
+
+/** Reads the raw consent approval token is impossible by design — only the
+ *  hash is stored — so tests grant consent directly, the way the parent's
+ *  click would. */
+export async function grantConsentFor(email: string) {
+  const client = new PrismaClient()
+  const user = await client.user.findUnique({ where: { email } })
+  if (user) {
+    await client.parentalConsent.updateMany({
+      where: { userId: user.id },
+      data: { grantedAt: new Date() },
+    })
+  }
+  await client.$disconnect()
+}
+
+export async function clearConsentFor(email: string) {
+  const client = new PrismaClient()
+  const user = await client.user.findUnique({ where: { email } })
+  if (user) await client.parentalConsent.deleteMany({ where: { userId: user.id } })
+  await client.$disconnect()
+}
