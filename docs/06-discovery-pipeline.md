@@ -85,6 +85,19 @@ Two things were wrong before this and are fixed: `discoveredVia` was hardcoded t
 the create and merge paths, so any non-search source would have been mislabelled; and `ingestHit`
 returned a bare string, so a caller could not link to what it had just stored.
 
+### The network path is exercised, not assumed
+
+`e2e/probe/live-fetch.test.ts` (run with `PROBE_LIVE=1`) drives the real thing: DNS, the SSRF guard
+resolving a real address, robots.txt, redirects, compression, and markup somebody else wrote. It
+targets pypi.org — not an opportunity, deliberately, and nothing is stored. The assertion that
+matters is that a page which is *not* an opportunity acquires no opportunity facts: no deadline, no
+fee, no eligibility, with the gaps reported honestly.
+
+Running the full `ingestUrl` against the same page confirmed the rest end to end: the record stored
+`discoveredVia: ADMIN`, an audit entry reading `ADMIN / DISCOVERED — "Added by URL"`, state
+`UNVERIFIED`, zero deadlines, zero eligibility rules, and provenance on exactly the three fields the
+page actually published.
+
 ### Checking extraction against a page you choose
 
 ```bash

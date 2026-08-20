@@ -28,7 +28,7 @@ npx prisma db push && npm run dev
 
 | | |
 |---|---|
-| **Tests** | 210 unit, 37 end-to-end (journey · accessibility · no-JavaScript · parental consent) |
+| **Tests** | 235 unit, 37 end-to-end (journey · accessibility · no-JavaScript · parental consent) |
 | **Stack** | Next.js 15 · TypeScript · Prisma · SQLite locally, Postgres in production |
 | **Auth** | Google sign-in via Auth.js, with a dev-only fallback that cannot exist in production |
 
@@ -108,7 +108,8 @@ Step-by-step in [`docs/09-running-lumen.md`](docs/09-running-lumen.md).
 - **The consent email path is unexercised.** It was built where outbound HTTPS to arbitrary hosts is
   blocked, so the provider integration has never made a real call. Failures are stored and shown in
   the admin queue rather than swallowed, so a misconfiguration surfaces on first use — but the first
-  real send is still the first real test.
+  real send is still the first real test. (Discovery no longer has this caveat: fetch, extraction and
+  storage are all verified against a live third-party server — see `docs/06-discovery-pipeline.md`.)
 - **A uniform 16 over-blocks some EU students.** Several member states set 13. This is deliberate
   (reasoning in [`docs/00-decisions.md`](docs/00-decisions.md)) and is one constant to change once
   you have advice for a given market.

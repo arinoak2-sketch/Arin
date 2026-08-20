@@ -90,3 +90,35 @@ which states the opposite of the truth: a programme that opened two days ago is 
 and `bandFor` in `lib/intelligence/deadlines.ts` now pick wording from the kind. Only actionable
 kinds are ever "due" or "closed"; everything else is "in 5 days" or "2 days ago", and a passed
 non-actionable date reads "Already happened", or "Open now" for applications opening.
+
+## What testing the AI tier found
+
+`extract/ai.ts` is the only place in the pipeline where text Lumen did not read off the page can
+reach a student, and it was untested. Twenty-five tests now cover it, with the model mocked
+throughout — a guard that only works when the model cooperates is not a guard, so every test asks
+the same question: *if the model returns something untrue, does it reach the corpus?*
+
+The good news first, because it is the part that matters: **the verbatim guard holds.** A fabricated
+deadline, a fabricated organiser, an invented fee, a made-up requirement and a promised benefit that
+appears nowhere on the page are each discarded, and a response in which *every* field is fabricated
+stores nothing at all. The layered checks work as designed — the deadline must survive both the
+verbatim check and a re-parse by the deterministic date parser, and the cost keeps only the model's
+wording while the number is re-derived from the phrase, so a hallucinated figure cannot pass.
+
+Two defects did turn up:
+
+| Defect | Consequence |
+|---|---|
+| `filled` was recorded when a phrase passed the verbatim check, not when a value was actually stored | Two paths quote a phrase successfully and then still discard it — an age range with no numbers, a cost phrase naming no fee. The count feeds the permanent audit note on the record, so it claimed "AI filled 2 fields" when it had filled none. |
+| Straight double quotes were not folded to curly ones | A page publishing a typographic quote and a model copying it as a plain one are saying the same thing. The check rejected it as not verbatim, throwing away a true value. Safe direction, but a real loss. |
+
+The first is the more interesting one. It was invisible from the outside — nothing displayed was
+wrong, only the record of how the value came to be. That is precisely the kind of claim this
+codebase is built to keep honest, and it had rotted in the one module nobody had tested.
+
+### One judgement left as it stands
+
+`format` is accepted from the model without a verbatim check, because it is a classification rather
+than a quotation and there is nothing to compare against. It carries weight in matching but never
+gates eligibility, and the model is instructed to return null rather than guess. This is a weaker
+standard than everything around it, and it is noted here rather than quietly relied upon.

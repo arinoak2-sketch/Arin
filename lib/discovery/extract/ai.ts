@@ -82,11 +82,18 @@ const SYSTEM = [
   '- If the page is not about a specific student opportunity, return null for every field and empty arrays.',
 ].join('\n')
 
-/** Normalises for the verbatim check: case, whitespace and quote style only. */
+/**
+ * Normalises for the verbatim check: case, whitespace and quote style only.
+ *
+ * Straight quotes fold to curly ones as well as the reverse. A page that
+ * publishes a typographic quotation mark and a model that copies it as a plain
+ * one are saying the same thing, and rejecting that as "not verbatim" throws
+ * away a true value — the check exists to catch invention, not typography.
+ */
 function normalise(s: string): string {
   return s
     .toLowerCase()
-    .replace(/[‘’“”]/g, "'")
+    .replace(/["‘’“”]/g, "'")
     .replace(/[–—]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
@@ -158,27 +165,44 @@ export async function fillGapsWithAi(
 
   const stamp = (rawText: string) => makeProvenance('AI_EXTRACTED', url, rawText, fetchedAt)
 
-  const acceptText = (field: string, value: string | null): string | null => {
+  /*
+   * Returns the value only if the page really contains it.
+   *
+   * Deliberately does NOT record the field as filled: several callers below
+   * quote a phrase successfully and then still discard it, because a second
+   * deterministic check fails. Counting at this point made the audit note on
+   * the record ("AI filled N fields") claim work that never happened. Filling
+   * is recorded where a value is actually stored, and nowhere else.
+   */
+  const quoted = (field: string, value: string | null): string | null => {
     if (!value) return null
     if (!appearsVerbatim(value, result.text)) {
       report.rejected.push(`${field}: ${value.slice(0, 80)}`)
       return null
     }
-    report.filled.push(field)
     return value
   }
 
   if (!result.title) {
-    const v = acceptText('title', extracted.title)
-    if (v) result.title = { value: v, provenance: stamp(v) }
+    const v = quoted('title', extracted.title)
+    if (v) {
+      result.title = { value: v, provenance: stamp(v) }
+      report.filled.push('title')
+    }
   }
   if (!result.summary) {
-    const v = acceptText('summary', extracted.summary)
-    if (v) result.summary = { value: v, provenance: stamp(v) }
+    const v = quoted('summary', extracted.summary)
+    if (v) {
+      result.summary = { value: v, provenance: stamp(v) }
+      report.filled.push('summary')
+    }
   }
   if (!result.organizerName) {
-    const v = acceptText('organizerName', extracted.organizerName)
-    if (v) result.organizerName = { value: v, provenance: stamp(v) }
+    const v = quoted('organizerName', extracted.organizerName)
+    if (v) {
+      result.organizerName = { value: v, provenance: stamp(v) }
+      report.filled.push('organizerName')
+    }
   }
   if (!result.format && extracted.format) {
     // Format is a classification rather than a quotation, so there is nothing
@@ -191,7 +215,7 @@ export async function fillGapsWithAi(
   // BOTH the verbatim check and a re-parse by the deterministic date parser.
   // The model never supplies the date itself — only the sentence it lives in.
   if (!result.deadlines.some((d) => d.value.kind === 'APPLICATION_DEADLINE')) {
-    const sentence = acceptText('applicationDeadline', extracted.applicationDeadlineText)
+    const sentence = quoted('applicationDeadline', extracted.applicationDeadlineText)
     if (sentence) {
       const parsed = parseDate(sentence, fetchedAt.getUTCFullYear())
       if (parsed) {
@@ -199,25 +223,26 @@ export async function fillGapsWithAi(
           value: { kind: 'APPLICATION_DEADLINE', date: parsed.date, isRollingAdmission: false },
           provenance: stamp(sentence),
         })
+        report.filled.push('applicationDeadline')
       } else {
-        report.filled.splice(report.filled.indexOf('applicationDeadline'), 1)
         report.rejected.push(`applicationDeadline: unparseable — ${sentence.slice(0, 80)}`)
       }
     }
   }
 
   if (!result.ageRange && extracted.ageRangeText) {
-    const phrase = acceptText('ageRange', extracted.ageRangeText)
+    const phrase = quoted('ageRange', extracted.ageRangeText)
     if (phrase && (extracted.ageMin !== null || extracted.ageMax !== null)) {
       result.ageRange = {
         value: { min: extracted.ageMin, max: extracted.ageMax },
         provenance: stamp(phrase),
       }
+      report.filled.push('ageRange')
     }
   }
 
   if (!result.costType && extracted.costText) {
-    const phrase = acceptText('cost', extracted.costText)
+    const phrase = quoted('cost', extracted.costText)
     if (phrase) {
       // Only the wording is taken from the model; the value is re-derived by
       // the deterministic parser so a hallucinated number cannot get through.
@@ -227,6 +252,7 @@ export async function fillGapsWithAi(
         result.costType = { value: parsed.costType, provenance: stamp(phrase) }
         if (parsed.amount !== null) result.costAmount = { value: parsed.amount, provenance: stamp(phrase) }
         if (parsed.currency) result.costCurrency = { value: parsed.currency, provenance: stamp(phrase) }
+        report.filled.push('cost')
       }
     }
   }
